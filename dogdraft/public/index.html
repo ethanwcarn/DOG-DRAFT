@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Fantasy Dog Draft | National Dog Show 2026</title>
+  <meta name="description" content="Pick your breeds, score points as they win on Thanksgiving.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap header-row">
+      <div class="brand">
+        <img src="/favicon.svg" alt="" width="40" height="40">
+        <div>
+          <h1>Fantasy Dog Draft</h1>
+          <p class="sub">National Dog Show &middot; Thanksgiving 2026</p>
+        </div>
+      </div>
+      <div id="lock-pill" class="lock-pill" aria-live="polite">Loading&hellip;</div>
+    </div>
+    <nav class="wrap tabs" role="tablist" aria-label="Sections">
+      <button role="tab" class="tab" data-tab="picks" aria-selected="true">My Picks</button>
+      <button role="tab" class="tab" data-tab="board" aria-selected="false">Leaderboard</button>
+      <button role="tab" class="tab" data-tab="results" aria-selected="false">Results</button>
+      <button role="tab" class="tab" data-tab="rules" aria-selected="false">How to Play</button>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <section id="tab-picks" class="panel" role="tabpanel"></section>
+    <section id="tab-board" class="panel" role="tabpanel" hidden></section>
+    <section id="tab-results" class="panel" role="tabpanel" hidden></section>
+    <section id="tab-rules" class="panel" role="tabpanel" hidden></section>
+  </main>
+
+  <div id="save-bar" class="save-bar" hidden>
+    <div class="wrap save-row">
+      <span id="save-progress">0 of 21 picked</span>
+      <button id="save-btn" class="btn primary" type="button">Save my picks</button>
+    </div>
+  </div>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <div id="overlay-root"></div>
+  <canvas id="confetti" aria-hidden="true"></canvas>
+
+  <footer class="wrap footer">
+    Breed photos come from each breed's Wikipedia article (Wikimedia Commons, free licenses).
+    See <a href="#" data-goto="rules">How to Play</a> for photo credits. Not affiliated with the National Dog Show, NBC, Purina, or the AKC.
+  </footer>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

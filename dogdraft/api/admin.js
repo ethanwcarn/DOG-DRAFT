@@ -1,0 +1,136 @@
+/**
+ * Admin API (results entry). All actions except login require the signed
+ * admin cookie.
+ *
+ * GET  /api/admin                         -> full state incl. hidden results
+ * POST /api/admin { action: "login", password }
+ * POST /api/admin { action: "logout" }
+ * POST /api/admin { action: "set", slot, breedId, reveal }   save a result
+ * POST /api/admin { action: "reveal", slots: [...] }          reveal saved results
+ * POST /api/admin { action: "clear", slot }                   remove one result
+ * POST /api/admin { action: "resetResults", confirm: "RESET" }
+ * POST /api/admin { action: "deletePlayer", id }
+ */
+import { route, requireMethod, readJsonBody, sendJson, clientIp, HttpError } from '../lib/http.js';
+import { query } from '../lib/db.js';
+import { createAdminCookie, clearAdminCookie, requireAdmin, rateLimit, safeEqual } from '../lib/security.js';
+import { BREED_BY_ID } from '../lib/breeds.js';
+import { ALL_SLOTS, parseGroupSlot, scorePlayers } from '../lib/scoring.js';
+import { isLocked, lockAt, loadPlayers, loadResults } from '../lib/game.js';
+
+export default route(async (req, res) => {
+  requireMethod(req, 'GET', 'POST');
+
+  if (req.method === 'GET') {
+    requireAdmin(req);
+    return sendJson(res, 200, await adminState());
+  }
+
+  const body = readJsonBody(req);
+  switch (body.action) {
+    case 'login': {
+      await rateLimit(`admin-login:${clientIp(req)}`, 10, 15 * 60);
+      const expected = process.env.ADMIN_PASSWORD;
+      if (!expected || expected.length < 8) throw new HttpError(503, 'Admin password is not configured.');
+      if (!safeEqual(String(body.password ?? ''), expected)) throw new HttpError(401, 'Wrong password.');
+      res.setHeader('Set-Cookie', createAdminCookie());
+      return sendJson(res, 200, { ok: true });
+    }
+    case 'logout':
+      res.setHeader('Set-Cookie', clearAdminCookie());
+      return sendJson(res, 200, { ok: true });
+    default:
+      break;
+  }
+
+  requireAdmin(req);
+
+  switch (body.action) {
+    case 'set': {
+      const slot = String(body.slot ?? '');
+      const breedId = String(body.breedId ?? '');
+      await validateResult(slot, breedId);
+      await query(
+        `INSERT INTO results (slot, breed_id, revealed, updated_at) VALUES ($1, $2, $3, now())
+         ON CONFLICT (slot) DO UPDATE SET breed_id = EXCLUDED.breed_id, revealed = EXCLUDED.revealed, updated_at = now()`,
+        [slot, breedId, body.reveal === true],
+      );
+      break;
+    }
+    case 'reveal': {
+      const slots = Array.isArray(body.slots) ? body.slots.map(String) : [];
+      if (!slots.length || slots.some((s) => !ALL_SLOTS.includes(s))) throw new HttpError(400, 'Unknown result slot.');
+      await query('UPDATE results SET revealed = true, updated_at = now() WHERE slot = ANY($1::text[])', [slots]);
+      break;
+    }
+    case 'clear': {
+      const slot = String(body.slot ?? '');
+      if (!ALL_SLOTS.includes(slot)) throw new HttpError(400, 'Unknown result slot.');
+      await query('DELETE FROM results WHERE slot = $1', [slot]);
+      break;
+    }
+    case 'resetResults': {
+      if (body.confirm !== 'RESET') throw new HttpError(400, 'Type RESET to confirm.');
+      await query('DELETE FROM results');
+      break;
+    }
+    case 'deletePlayer': {
+      const id = Number(body.id);
+      if (!Number.isInteger(id) || id <= 0) throw new HttpError(400, 'Invalid player.');
+      await query('DELETE FROM players WHERE id = $1', [id]);
+      break;
+    }
+    default:
+      throw new HttpError(400, 'Unknown action');
+  }
+  return sendJson(res, 200, await adminState());
+});
+
+/**
+ * Sanity checks so a mis-tap during the live show can't corrupt scoring:
+ *  - group placements must be a breed from that group, not already placed
+ *    elsewhere in the same group
+ *  - BIS / Reserve BIS must be a group winner, and not the same dog
+ */
+async function validateResult(slot, breedId) {
+  if (!ALL_SLOTS.includes(slot)) throw new HttpError(400, 'Unknown result slot.');
+  const breed = BREED_BY_ID.get(breedId);
+  if (!breed) throw new HttpError(400, 'Unknown breed.');
+
+  const { results } = await loadResults({ revealedOnly: false });
+  const gs = parseGroupSlot(slot);
+  if (gs) {
+    if (breed.group !== gs.group) throw new HttpError(400, `${breed.name} is not in that group.`);
+    for (let p = 1; p <= 4; p += 1) {
+      const other = `${gs.group}:${p}`;
+      if (other !== slot && results[other] === breedId) {
+        throw new HttpError(409, `${breed.name} already has another placement in this group. Clear it first.`);
+      }
+    }
+    return;
+  }
+  // BIS or RBIS
+  if (results[`${breed.group}:1`] !== breedId) {
+    throw new HttpError(400, `${breed.name} must be entered as its group winner first.`);
+  }
+  const otherTop = slot === 'BIS' ? 'RBIS' : 'BIS';
+  if (results[otherTop] === breedId) {
+    throw new HttpError(409, 'Best in Show and Reserve Best in Show must be different dogs.');
+  }
+}
+
+async function adminState() {
+  const [players, all, pub] = await Promise.all([
+    loadPlayers(),
+    loadResults({ revealedOnly: false }),
+    loadResults({ revealedOnly: true }),
+  ]);
+  const scored = scorePlayers(players, pub.results);
+  return {
+    lockAt: lockAt().toISOString(),
+    locked: isLocked(),
+    results: all.results,
+    revealed: all.revealed,
+    players: scored.players.map((p) => ({ id: p.id, name: p.name, total: p.total, rank: p.rank, createdAt: p.createdAt })),
+  };
+}
