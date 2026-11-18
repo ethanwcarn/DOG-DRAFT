@@ -8,6 +8,13 @@
  * Saving is refused after the lock time. Every attempt is rate limited per
  * IP and per name so a 4-digit PIN cannot be guessed by brute force.
  *
+ * Anti-bot limits (all invisible to normal players):
+ *   - every load/save: 40 per IP and 10 per name per 15 minutes
+ *   - NEW entries: 20 per IP per hour (a whole party shares one Wi-Fi IP),
+ *     60 per hour site-wide, and 100 players total
+ *   - a hidden "honeypot" form field that people never see; bots that fill
+ *     it in are rejected
+ *
  * One entry per device: creating a NEW entry is refused if this browser's
  * device cookie already belongs to an entry under another name. Editing an
  * existing entry (right name + PIN) always works, from any device, and tags
@@ -20,6 +27,12 @@ import { cleanName, cleanPin, cleanPicks, isLocked, nameKey, rowBisPicks } from 
 import { readDeviceId, newDeviceId, deviceCookie } from '../lib/device.js';
 
 const MAX_PLAYERS = 100; // generous cap so a script can't flood the leaderboard
+export const LIMITS = Object.freeze({
+  attemptsPerIp: [40, 15 * 60],
+  attemptsPerName: [10, 15 * 60],
+  newEntriesPerIp: [20, 60 * 60],
+  newEntriesSiteWide: [60, 60 * 60],
+});
 
 export default route(async (req, res) => {
   requireMethod(req, 'POST');
@@ -27,13 +40,20 @@ export default route(async (req, res) => {
   const action = body.action;
   if (action !== 'load' && action !== 'save') throw new HttpError(400, 'Unknown action');
 
+  // Honeypot: the page sends this hidden field empty. Anything else is a bot.
+  if (body.hp !== undefined && body.hp !== '') {
+    console.warn('picks: honeypot triggered from', clientIp(req));
+    throw new HttpError(400, 'Something went wrong. Please refresh the page and try again.');
+  }
+
   const first = cleanName(body.firstName, 'first name');
   const last = cleanName(body.lastName, 'last name');
   const pin = cleanPin(body.pin);
   const key = nameKey(first, last);
 
-  await rateLimit(`ip:${clientIp(req)}`, 40, 15 * 60);
-  await rateLimit(`name:${key}`, 10, 15 * 60);
+  const ip = clientIp(req);
+  await rateLimit(`ip:${ip}`, ...LIMITS.attemptsPerIp);
+  await rateLimit(`name:${key}`, ...LIMITS.attemptsPerName);
 
   const existing = (await query('SELECT id, pin_hash, picks, bis_pick, bis_picks, device_id FROM players WHERE name_key = $1', [key]))[0];
   const deviceId = readDeviceId(req);
@@ -78,6 +98,9 @@ export default route(async (req, res) => {
 
   const count = Number((await query('SELECT count(*)::int AS n FROM players'))[0].n);
   if (count >= MAX_PLAYERS) throw new HttpError(409, 'This game is full.');
+  // New-entry limits (checked only when actually creating an entry)
+  await rateLimit(`new-ip:${ip}`, ...LIMITS.newEntriesPerIp);
+  await rateLimit('new-site', ...LIMITS.newEntriesSiteWide);
 
   const inserted = await query(
     `INSERT INTO players (first_name, last_name, name_key, pin_hash, picks, bis_pick, bis_picks, device_id)

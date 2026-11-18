@@ -225,6 +225,33 @@ await test('any of the 3 calls earns the bonus, once', () => {
   assert.equal(r.players[0].total, 52);
 });
 
+await test('honeypot field rejects bots', async () => {
+  const p = makePicks();
+  const r = await call(picks, { body: { action: 'save', firstName: 'Bot', lastName: 'Net', pin: '1212', picks: p, bisPicks: bis(p), hp: 'http://spam.example' } });
+  assert.equal(r.status, 400);
+  const ok = await call(picks, { body: { action: 'save', firstName: 'Real', lastName: 'Person', pin: '1212', picks: p, bisPicks: bis(p), hp: '' } });
+  assert.equal(ok.status, 201, 'empty honeypot is fine');
+  await pg.query("DELETE FROM players WHERE name_key = 'real person'");
+});
+await test('new entries are limited per IP (edits are not)', async () => {
+  const { LIMITS } = await import('../api/picks.js');
+  const [max] = LIMITS.newEntriesPerIp;
+  const p = makePicks();
+  const ip = '203.0.113.77';
+  const names = 'Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India Juliet Kilo Lima Mike November Oscar Papa Quebec Romeo Sierra Tango Uniform Victor'.split(' ');
+  let last;
+  for (let i = 0; i <= max; i += 1) {
+    last = await call(picks, { ip, body: { action: 'save', firstName: names[i], lastName: 'Party', pin: '3434', picks: p, bisPicks: bis(p) } });
+    if (i < max) assert.equal(last.status, 201, `entry ${i + 1} should be allowed`);
+  }
+  assert.equal(last.status, 429, 'one past the limit is refused');
+  // An existing player on the same Wi-Fi can still edit
+  const edit = await call(picks, { ip, body: { action: 'save', firstName: names[0], lastName: 'Party', pin: '3434', picks: makePicks(3), bisPicks: bis(makePicks(3)) } });
+  assert.equal(edit.status, 200);
+  await pg.query("DELETE FROM players WHERE last_name = 'Party'");
+  await pg.query("DELETE FROM rate_limits"); // don't let this test's counters affect later tests
+});
+
 // More players for scoring
 const bob = { firstName: 'Bob', lastName: 'Ray', pin: '2222' };
 const cat = { firstName: 'Cat', lastName: 'Kim', pin: '3333' };

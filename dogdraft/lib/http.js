@@ -74,8 +74,13 @@ export function readJsonBody(req) {
   return body;
 }
 
-/** Best-effort client IP (Vercel sets x-forwarded-for). Used only for rate limiting. */
+/**
+ * Client IP, used only for rate limiting. Vercel overwrites these headers
+ * with the real client address (clients can't spoof them). The
+ * x-vercel-forwarded-for copy is preferred because it stays correct even if
+ * a proxy (e.g. Cloudflare's orange-cloud mode) is ever put in front.
+ */
 export function clientIp(req) {
-  const fwd = String(req.headers['x-forwarded-for'] || '');
+  const fwd = String(req.headers['x-vercel-forwarded-for'] || req.headers['x-forwarded-for'] || '');
   return fwd.split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
 }

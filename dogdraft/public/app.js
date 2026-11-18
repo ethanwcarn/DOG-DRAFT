@@ -234,6 +234,8 @@ function renderPicks() {
   const first = h('input', { id: 'in-first', autocomplete: 'given-name', maxlength: 30, value: app.draft.first || '', oninput: saveIdentity });
   const last = h('input', { id: 'in-last', autocomplete: 'family-name', maxlength: 30, value: app.draft.last || '', oninput: saveIdentity });
   const pin = h('input', { id: 'in-pin', type: 'password', inputmode: 'numeric', pattern: '[0-9]{4}', maxlength: 4, autocomplete: 'off', oninput: updateGate });
+  // Honeypot: invisible to people (and screen readers); bots tend to fill every field.
+  const trap = h('input', { id: 'in-hp', name: 'dd_hp_x7', type: 'text', tabindex: '-1', autocomplete: 'off', 'aria-hidden': 'true' });
   root.append(
     h('div', { class: 'card intro' },
       h('h2', {}, `Pick ${ppg} breeds from each of the 7 groups`),
@@ -246,6 +248,7 @@ function renderPicks() {
         h('label', {}, 'Last name', last),
         h('label', {}, '4-digit PIN', pin, h('small', {}, 'Make one up. You need it to change your picks later.')),
       ),
+      h('div', { class: 'hp', 'aria-hidden': 'true' }, trap),
       h('p', { class: 'muted' }, 'Already entered? Type your name and PIN, then ',
         h('button', { class: 'linklike', type: 'button', onclick: loadMyPicks }, 'load my saved picks'), '.'),
       app.me ? h('p', { class: 'device-note' },
@@ -710,6 +713,8 @@ function applyFilter({ animate = null, dir = 1 } = {}) {
   });
 }
 
+const honeypot = () => document.getElementById('in-hp')?.value || '';
+
 function readIdentity() {
   const first = document.getElementById('in-first').value.trim();
   const last = document.getElementById('in-last').value.trim();
@@ -722,7 +727,7 @@ function readIdentity() {
 async function loadMyPicks() {
   try {
     const { first, last, pin } = readIdentity();
-    const data = await api('/api/picks', { method: 'POST', body: { action: 'load', firstName: first, lastName: last, pin } });
+    const data = await api('/api/picks', { method: 'POST', body: { action: 'load', firstName: first, lastName: last, pin, hp: honeypot() } });
     app.draft = { first, last, picks: data.picks, bisPicks: Array.isArray(data.bisPicks) ? data.bisPicks : [] };
     const hadFewer = app.draft.bisPicks.length < bisMax();
     sanitizeDraft();
@@ -765,7 +770,7 @@ async function savePicks() {
     btn.textContent = 'Saving...';
     const r = await api('/api/picks', {
       method: 'POST',
-      body: { action: 'save', firstName: first, lastName: last, pin, picks: app.draft.picks, bisPicks: app.draft.bisPicks },
+      body: { action: 'save', firstName: first, lastName: last, pin, picks: app.draft.picks, bisPicks: app.draft.bisPicks, hp: honeypot() },
     });
     app.me = { first, last };
     store.set('dd_me', app.me);

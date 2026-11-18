@@ -70,6 +70,22 @@ The first time a browser saves an entry, the site remembers that device. The sam
 
 This can be bypassed by clearing cookies, using a private window, or using another device. Check the player list on `/admin` before the lock, and use **Remove** for any duplicates. Two people who share one phone need to enter from separate devices.
 
+## Anti-bot protection
+
+These limits are invisible to normal players:
+
+| Protection | Limit |
+|---|---|
+| Saves/loads per connection (IP) | 40 per 15 minutes |
+| Attempts on one name (blocks PIN guessing) | 10 per 15 minutes |
+| New entries per connection | 20 per hour (a whole party shares one Wi-Fi) |
+| New entries site-wide | 60 per hour |
+| Total players | 100 |
+| Hidden "honeypot" field | Saves that fill it in are rejected |
+| Admin login | 10 per 15 minutes |
+
+To change a limit, edit `LIMITS` in `api/picks.js`. A CAPTCHA isn't used. For a private game this size it would add friction without much benefit. If a real attack ever happens, turn on Vercel's **Attack Challenge Mode** under the project's Firewall tab. It's one switch and needs no code.
+
 ## How it's built
 
 - Static HTML/CSS/JS in `public/` with no framework and no build step.
