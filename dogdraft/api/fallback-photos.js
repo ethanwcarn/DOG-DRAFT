@@ -42,6 +42,17 @@ const ALIASES = {
   'pomeranian': ['Pomeranian', 'Pom'],
 };
 
+/**
+ * Some Dog API photos show a different variety than our breed (e.g. its
+ * "Belgian Sheepdog" photo is a Malinois). For these breeds, only accept an
+ * image whose Commons file name matches the pattern; otherwise skip it so the
+ * browser falls back to Wikipedia.
+ */
+const IMAGE_MUST_MATCH = {
+  'belgian-sheepdog': /groenendael|sheepdog/i,
+  'belgian-laekenois': /laekenois/i,
+};
+
 /** "Belgian Shepherd Dog (Groenendael)" -> "belgian shepherd groenendael" */
 export function norm(s) {
   return String(s || '')
@@ -107,9 +118,11 @@ export function matchPhotos(ourBreeds, apiBreeds) {
       continue;
     }
     const images = Array.isArray(rec.attributes?.images) ? rec.attributes.images : [];
-    const img = images.find((i) => isDogApiImage(i?.medium) || isDogApiImage(i?.url));
+    const mustMatch = IMAGE_MUST_MATCH[b.id];
+    const img = images.find((i) => (isDogApiImage(i?.medium) || isDogApiImage(i?.url))
+      && (!mustMatch || mustMatch.test(String(i?.attribution?.source_url || ''))));
     if (!img) {
-      debug[b.id] = `matched "${rec.attributes.name}" but it has no images`;
+      debug[b.id] = `matched "${rec.attributes.name}" but it has no ${mustMatch ? 'suitable ' : ''}images`;
       continue;
     }
     const at = img.attribution || {};

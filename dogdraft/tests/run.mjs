@@ -279,6 +279,14 @@ await test('non-dogapi image hosts are ignored', () => {
   bad.attributes.images[0].url = 'https://evil.example/y.jpg';
   assert.equal(fb.matchPhotos(ours, [bad]).photos.pomeranian, undefined);
 });
+await test('wrong-variety photo is skipped for Belgian Sheepdog', () => {
+  const ours = BREEDS.filter((b) => b.id === 'belgian-sheepdog');
+  const rec = fakeApi('Belgian Sheepdog');
+  rec.attributes.images[0].attribution.source_url = 'https://commons.wikimedia.org/wiki/File:Belgian_Malinois_01.jpg';
+  assert.equal(fb.matchPhotos(ours, [rec]).photos['belgian-sheepdog'], undefined);
+  rec.attributes.images.push({ ...rec.attributes.images[0], medium: 'https://images.dogapi.dog/g.jpg', attribution: { source_url: 'https://commons.wikimedia.org/wiki/File:Groenendael.jpg' } });
+  assert.equal(fb.matchPhotos(ours, [rec]).photos['belgian-sheepdog'].src, 'https://images.dogapi.dog/g.jpg');
+});
 await test('endpoint pages through the API and survives an outage', async () => {
   const realFetch = globalThis.fetch;
   try {
