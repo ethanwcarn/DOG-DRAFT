@@ -261,14 +261,14 @@ const fakeApi = (name, extra = {}) => ({
   },
 });
 await test('matches by name, alias, and other_names; rejects bad URLs', () => {
-  const ours = BREEDS.filter((b) => ['plott-hound', 'pomeranian', 'belgian-sheepdog', 'chinook', 'keeshond'].includes(b.id));
-  const api = [fakeApi('Plott'), fakeApi('Pomeranian'), fakeApi('Some Belgian', { other: ['Groenendael'] }), fakeApi('Chinook', { noImages: true })];
+  const ours = BREEDS.filter((b) => ['plott-hound', 'pomeranian', 'keeshond', 'chinook', 'boerboel'].includes(b.id));
+  const api = [fakeApi('Plott'), fakeApi('Pomeranian'), fakeApi('Some Spitz', { other: ['Wolfspitz'] }), fakeApi('Chinook', { noImages: true })];
   const { photos, debug } = fb.matchPhotos(ours, api);
   assert.equal(photos['plott-hound'].src, 'https://images.dogapi.dog/m/Plott.jpg');
-  assert.ok(photos.pomeranian && photos['belgian-sheepdog']);
+  assert.ok(photos.pomeranian && photos.keeshond, 'alias + other_names match');
   assert.equal(photos.chinook, undefined);
   assert.match(debug.chinook, /no images/);
-  assert.match(debug.keeshond, /no Dog API breed/);
+  assert.match(debug.boerboel, /no Dog API breed/);
   assert.equal(photos.pomeranian.sourceUrl, null, 'javascript: URLs are dropped');
   assert.equal(photos.pomeranian.license, 'CC BY-SA 4.0');
 });
