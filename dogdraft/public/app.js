@@ -35,7 +35,12 @@ const app = {
   me: store.get('dd_me', null), // { first, last } after a successful save
   filter: '',
   page: {}, // group key -> current page index in the breed carousel
+  step: 0, // phone wizard: index of the group being shown (groups.length = Best in Show step)
 };
+
+// Phones get a step-by-step picker: one group at a time, auto-advancing after 3 picks.
+const PHONE = window.matchMedia('(max-width: 640px)');
+const isWizard = () => PHONE.matches;
 
 const PAGE_SIZE = 6; // breeds shown per group at once (one row on desktop)
 const NAME_RE = /^[\p{L}][\p{L}\p{M} .'\u2019-]{0,29}$/u; // same rule the server enforces
@@ -229,6 +234,15 @@ function renderPicks() {
     ),
     h('p', { class: 'gate-hint', id: 'gate-hint', hidden: true }, 'Fill in your name and PIN in step 1 to start picking.'),
     search,
+    // Phone-only progress: one dot per group plus a star for the Best in Show call
+    h('div', { class: 'wizard-progress' },
+      h('p', { class: 'wizard-label', id: 'wizard-label' }),
+      h('div', { class: 'dots' },
+        app.groups.map((g, i) => h('button', {
+          type: 'button', class: 'dot', id: `dot-${i}`, style: { '--accent': g.color },
+          'aria-label': `${g.name} group`, onclick: () => goStep(i),
+        })),
+        h('button', { type: 'button', class: 'dot star', id: `dot-${app.groups.length}`, 'aria-label': 'Best in Show call', onclick: () => goStep(app.groups.length) }, '\u2605'))),
   ));
 
   for (const g of app.groups) {
@@ -260,11 +274,95 @@ function renderPicks() {
     h('div', { class: 'chips', id: 'bis-chips' }),
   ));
 
+  // Phone-only Back / Next under the current step
+  root.append(h('div', { class: 'wizard-nav' },
+    h('button', { class: 'btn ghost', id: 'wiz-back', type: 'button', onclick: () => goStep(app.step - 1) }, 'Back'),
+    h('button', { class: 'btn secondary', id: 'wiz-next', type: 'button', onclick: () => goStep(app.step + 1) }, 'Next group'),
+  ));
+
   document.getElementById('save-btn').onclick = savePicks;
   refreshSelection();
   applyFilter();
   updateGate();
+  app.step = firstIncompleteStep();
+  showStep({ scroll: false });
 }
+
+// ---------------------------------------------------------------------------
+// Phone wizard: one group at a time
+// ---------------------------------------------------------------------------
+
+/** First group still missing picks, or the Best in Show step if all are full. */
+function firstIncompleteStep(after = -1) {
+  const ppg = app.rules.picksPerGroup;
+  const n = app.groups.length;
+  for (let k = 1; k <= n; k += 1) {
+    const i = (after + k) % n;
+    if (app.draft.picks[app.groups[i].key].length < ppg) return i;
+  }
+  return n; // every group is full: go to the Best in Show call
+}
+
+function goStep(i) {
+  app.step = Math.min(Math.max(i, 0), app.groups.length);
+  showStep({ scroll: true });
+}
+
+/** Mark the current group (or the BIS step) and refresh the progress UI. */
+function showStep({ scroll }) {
+  const root = document.getElementById('tab-picks');
+  if (!root || app.server?.locked) return;
+  root.classList.toggle('wizard', isWizard());
+  const n = app.groups.length;
+  app.groups.forEach((g, i) => document.getElementById(`group-${g.key}`)?.classList.toggle('current', i === app.step));
+  document.getElementById('bis-step')?.classList.toggle('current', app.step === n);
+  const label = document.getElementById('wizard-label');
+  if (label) {
+    label.textContent = app.step < n
+      ? `Group ${app.step + 1} of ${n}: ${app.groups[app.step].name}. Pick ${app.rules.picksPerGroup}.`
+      : 'Last step: choose your Best in Show call, then tap Save.';
+  }
+  const back = document.getElementById('wiz-back');
+  const next = document.getElementById('wiz-next');
+  if (back) back.disabled = app.step === 0;
+  if (next) {
+    next.hidden = app.step >= n;
+    next.textContent = app.step === n - 1 ? 'Best in Show call' : 'Next group';
+  }
+  updateDots();
+  if (scroll && isWizard()) {
+    // Scroll so the progress dots and the new group sit just below the sticky header
+    const progress = document.querySelector('.sticky-search');
+    const header = document.querySelector('.site-header');
+    if (progress) {
+      const top = progress.getBoundingClientRect().top + window.scrollY - (header ? header.offsetHeight : 0) - 8;
+      window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    }
+    const target = app.step < n ? document.getElementById(`group-${app.groups[app.step].key}`) : document.getElementById('bis-step');
+    const shown = app.step < n ? target?.querySelector('.breed-grid') : target;
+    shown?.classList.remove('slide-left');
+    void shown?.offsetWidth; // restart animation
+    shown?.classList.add('slide-left');
+  }
+}
+
+function updateDots() {
+  const ppg = app.rules.picksPerGroup;
+  app.groups.forEach((g, i) => {
+    const dot = document.getElementById(`dot-${i}`);
+    if (!dot) return;
+    dot.classList.toggle('done', app.draft.picks[g.key].length === ppg);
+    dot.classList.toggle('current', i === app.step);
+  });
+  const star = document.getElementById(`dot-${app.groups.length}`);
+  if (star) {
+    star.classList.toggle('done', Boolean(app.draft.bisPick));
+    star.classList.toggle('current', app.step === app.groups.length);
+  }
+}
+
+// Switching between phone and desktop layouts (rotating a tablet, resizing)
+PHONE.addEventListener('change', () => showStep({ scroll: false }));
 
 function breedCard(b) {
   return h('button', {
@@ -394,6 +492,7 @@ function randomPicks(e) {
   }
   store.set('dd_draft', app.draft);
   refreshSelection();
+  if (isWizard()) goStep(app.groups.length); // team is full: show the Best in Show step
   confetti(['#F5C542', '#2E7D32', '#1565C0', '#C62828'], 70, { y: 0.3, spread: Math.PI / 2 });
   toast(added ? `Picked ${added} dogs for you. Swap any you like, then tap Save.` : 'Your team is already full.', { kind: 'ok', ms: 4500 });
 }
@@ -447,6 +546,19 @@ function toggle(b) {
   }
   store.set('dd_draft', app.draft);
   refreshSelection();
+
+  // Phone wizard: the 3rd pick in the current group moves on to the next group
+  const groupIndex = app.groups.findIndex((g) => g.key === b.group);
+  if (i < 0 && isWizard() && groupIndex === app.step && list.length === app.rules.picksPerGroup) {
+    const nextStep = firstIncompleteStep(groupIndex);
+    const done = app.groups[groupIndex].name;
+    clearTimeout(app.advanceTimer);
+    app.advanceTimer = setTimeout(() => {
+      if (app.step !== groupIndex) return; // they navigated away meanwhile
+      toast(nextStep < app.groups.length ? `${done} done! On to ${app.groups[nextStep].name}.` : `${done} done! Last step: your Best in Show call.`, { kind: 'ok', ms: 2200 });
+      goStep(nextStep);
+    }, 650);
+  }
 }
 
 /** Update card states, counters, BIS chips, and the save bar without a full re-render. */
@@ -492,6 +604,7 @@ function refreshSelection() {
       }, h('img', { ...photoAttrs(id), alt: '', loading: 'lazy', onerror: onImgError }), b.name));
     }
   }
+  updateDots();
   const total = ppg * app.groups.length;
   const progress = document.getElementById('save-progress');
   progress.textContent = `${picked.size} of ${total} picked${app.draft.bisPick ? ' + Best in Show call' : ''}`;
@@ -551,6 +664,8 @@ async function loadMyPicks() {
     app.me = { first, last };
     store.set('dd_me', app.me);
     refreshSelection();
+    app.step = firstIncompleteStep();
+    showStep({ scroll: false });
     toast('Loaded your picks. Make changes and save again.', { kind: 'ok' });
   } catch (e) {
     toast(e.message, { kind: 'error', ms: 5000 });
@@ -565,11 +680,13 @@ async function savePicks() {
     const ppg = app.rules.picksPerGroup;
     const missing = app.groups.filter((g) => app.draft.picks[g.key].length !== ppg);
     if (missing.length) {
-      document.getElementById(`group-${missing[0].key}`).scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (isWizard()) goStep(app.groups.indexOf(missing[0]));
+      else document.getElementById(`group-${missing[0].key}`).scrollIntoView({ behavior: 'smooth', block: 'start' });
       throw new Error(`Pick ${ppg} in every group. Still need: ${missing.map((g) => g.name).join(', ')}.`);
     }
     if (!app.draft.bisPick) {
-      document.getElementById('bis-step').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (isWizard()) goStep(app.groups.length);
+      else document.getElementById('bis-step').scrollIntoView({ behavior: 'smooth', block: 'center' });
       throw new Error('Choose your Best in Show call (step 3).');
     }
     btn.disabled = true;

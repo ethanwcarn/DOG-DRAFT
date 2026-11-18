@@ -255,6 +255,23 @@ table.points td:last-child { text-align: right; font-weight: 700; }
   .slot-actions { justify-content: flex-start; }
 }
 
+/* ---------- Phone wizard: one group at a time ---------- */
+.wizard-progress, .wizard-nav { display: none; }
+.wizard .wizard-progress { display: block; margin-top: 4px; }
+.wizard .wizard-nav { display: flex; justify-content: space-between; gap: 10px; margin: 6px 0 18px; }
+.wizard .wizard-nav .btn { flex: 1; }
+.wizard .group:not(.current), .wizard #bis-step:not(.current) { display: none; }
+.wizard .sticky-search input[type="search"] { display: none; }
+.wizard .group { margin-top: 4px; }
+.wizard-label { margin: 0 0 8px; font-weight: 700; font-size: .95rem; }
+.dots { display: flex; gap: 8px; align-items: center; }
+.dot { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--accent, var(--gold)); background: #fff; padding: 0; cursor: pointer; font-size: .8rem; line-height: 1; color: var(--gold); }
+.dot.done { background: var(--accent, var(--gold)); }
+.dot.star.done { color: #fff; }
+.dot.current { box-shadow: 0 0 0 3px rgba(224, 168, 38, .55); transform: scale(1.1); }
+.dot:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+#bis-step.slide-left { animation: slideL .28s ease; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
