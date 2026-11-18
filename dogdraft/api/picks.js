@@ -2,7 +2,7 @@
  * POST /api/picks
  *   { action: "load", firstName, lastName, pin }
  *       -> your saved picks (to edit them)
- *   { action: "save", firstName, lastName, pin, picks, bisPick }
+ *   { action: "save", firstName, lastName, pin, picks, bisPicks: [1st, 2nd, 3rd] }
  *       -> create your entry, or update it if the name + PIN match
  *
  * Saving is refused after the lock time. Every attempt is rate limited per
@@ -16,7 +16,7 @@
 import { route, requireMethod, readJsonBody, sendJson, clientIp, HttpError } from '../lib/http.js';
 import { query } from '../lib/db.js';
 import { hashPin, verifyPin, rateLimit } from '../lib/security.js';
-import { cleanName, cleanPin, cleanPicks, isLocked, nameKey } from '../lib/game.js';
+import { cleanName, cleanPin, cleanPicks, isLocked, nameKey, rowBisPicks } from '../lib/game.js';
 import { readDeviceId, newDeviceId, deviceCookie } from '../lib/device.js';
 
 const MAX_PLAYERS = 100; // generous cap so a script can't flood the leaderboard
@@ -35,7 +35,7 @@ export default route(async (req, res) => {
   await rateLimit(`ip:${clientIp(req)}`, 40, 15 * 60);
   await rateLimit(`name:${key}`, 10, 15 * 60);
 
-  const existing = (await query('SELECT id, pin_hash, picks, bis_pick, device_id FROM players WHERE name_key = $1', [key]))[0];
+  const existing = (await query('SELECT id, pin_hash, picks, bis_pick, bis_picks, device_id FROM players WHERE name_key = $1', [key]))[0];
   const deviceId = readDeviceId(req);
 
   if (action === 'load') {
@@ -44,21 +44,22 @@ export default route(async (req, res) => {
       throw new HttpError(404, 'No entry found for that name and PIN.');
     }
     await tagDevice(res, deviceId, existing);
-    return sendJson(res, 200, { picks: parseJson(existing.picks), bisPick: existing.bis_pick });
+    return sendJson(res, 200, { picks: parseJson(existing.picks), bisPicks: rowBisPicks(existing) });
   }
 
   // ----- save -----
   if (isLocked()) throw new HttpError(423, 'Picks are locked. The show has started!');
-  const { picks, bisPick } = cleanPicks(body.picks, body.bisPick);
+  const { picks, bisPicks } = cleanPicks(body.picks, body.bisPicks);
 
   if (existing) {
     if (!(await verifyPin(pin, existing.pin_hash))) {
       throw new HttpError(403, 'That name is already entered. Use the same PIN you chose before to change your picks.');
     }
     await query(
-      `UPDATE players SET first_name = $1, last_name = $2, picks = $3::jsonb, bis_pick = $4, updated_at = now()
-        WHERE id = $5`,
-      [first, last, JSON.stringify(picks), bisPick, existing.id],
+      `UPDATE players SET first_name = $1, last_name = $2, picks = $3::jsonb, bis_pick = $4, bis_picks = $5::jsonb,
+              updated_at = now()
+        WHERE id = $6`,
+      [first, last, JSON.stringify(picks), bisPicks[0], JSON.stringify(bisPicks), existing.id],
     );
     await tagDevice(res, deviceId, existing);
     return sendJson(res, 200, { ok: true, created: false });
@@ -79,11 +80,11 @@ export default route(async (req, res) => {
   if (count >= MAX_PLAYERS) throw new HttpError(409, 'This game is full.');
 
   const inserted = await query(
-    `INSERT INTO players (first_name, last_name, name_key, pin_hash, picks, bis_pick, device_id)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+    `INSERT INTO players (first_name, last_name, name_key, pin_hash, picks, bis_pick, bis_picks, device_id)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8)
      ON CONFLICT (name_key) DO NOTHING
      RETURNING id`,
-    [first, last, key, await hashPin(pin), JSON.stringify(picks), bisPick, newId],
+    [first, last, key, await hashPin(pin), JSON.stringify(picks), bisPicks[0], JSON.stringify(bisPicks), newId],
   );
   if (!inserted.length) {
     // Someone with the same name saved a split second earlier.

@@ -129,6 +129,8 @@ input:focus, select:focus { outline: 2px solid var(--gold); outline-offset: 1px;
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px 4px 4px; border: 2px solid var(--line); border-radius: 999px; background: #fff; cursor: pointer; font-size: .9rem; }
 .chip img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+.rank-badge { background: var(--navy); color: #fff; border-radius: 999px; padding: 1px 7px; font-size: .72rem; font-weight: 800; }
+.bis-status { margin: 0 0 10px; font-weight: 700; color: var(--navy); }
 .chip[aria-pressed="true"] { border-color: var(--gold); background: var(--gold-soft); font-weight: 700; }
 
 .save-bar { position: fixed; left: 0; right: 0; bottom: 0; background: rgba(30, 42, 74, .97); color: #fff; z-index: 30; padding: 10px 0 calc(10px + env(safe-area-inset-bottom)); }

@@ -31,7 +31,7 @@ const app = {
   expanded: new Set(),
   queue: [],
   playing: false,
-  draft: store.get('dd_draft', { first: '', last: '', picks: {}, bisPick: null }),
+  draft: store.get('dd_draft', { first: '', last: '', picks: {}, bisPicks: [] }),
   me: store.get('dd_me', null), // { first, last } after a successful save
   filter: '',
   page: {}, // group key -> current page index in the breed carousel
@@ -80,10 +80,17 @@ function sanitizeDraft() {
       .filter((id) => app.byId.get(id)?.group === g.key)
       .slice(0, app.rules.picksPerGroup);
   }
-  if (!allPicks().includes(app.draft.bisPick)) app.draft.bisPick = null;
+  // Drafts saved by the older page had a single bisPick; carry it over as the 1st call.
+  if (!Array.isArray(app.draft.bisPicks)) app.draft.bisPicks = app.draft.bisPick ? [app.draft.bisPick] : [];
+  delete app.draft.bisPick;
+  const mine = new Set(allPicks());
+  app.draft.bisPicks = [...new Set(app.draft.bisPicks.map(String))].filter((id) => mine.has(id)).slice(0, bisMax());
 }
 
 const allPicks = () => app.groups.flatMap((g) => app.draft.picks[g.key] || []);
+const bisMax = () => app.rules?.bisCalls || 3;
+const bisDone = () => app.draft.bisPicks.length === bisMax();
+const ORDINAL = ['1st', '2nd', '3rd', '4th', '5th'];
 
 // ---------------------------------------------------------------------------
 // Polling
@@ -269,8 +276,9 @@ function renderPicks() {
 
   // Step 3: Best in Show call
   root.append(h('div', { class: 'card step', id: 'bis-step' },
-    h('h3', {}, h('span', { class: 'step-num' }, '3'), 'Your Best in Show call'),
-    h('p', { class: 'muted' }, `Pick one of your dogs to win it all. Bonus +${app.rules.points.bestInShowCallBonus} points if you are right.`),
+    h('h3', {}, h('span', { class: 'step-num' }, '3'), `Your top ${bisMax()} Best in Show calls`),
+    h('p', { class: 'muted' }, `Tap ${bisMax()} of your dogs in order: most likely to win first. If any of them wins Best in Show, you get +${app.rules.points.bestInShowCallBonus} bonus points.`),
+    h('p', { class: 'bis-status', id: 'bis-status' }),
     h('div', { class: 'chips', id: 'bis-chips' }),
   ));
 
@@ -303,6 +311,12 @@ function firstIncompleteStep(after = -1) {
   return n; // every group is full: go to the Best in Show call
 }
 
+/** Phones: switch to that step. Desktop: scroll to the Best in Show card. */
+function goStepOrScroll(i) {
+  if (isWizard()) goStep(i);
+  else document.getElementById('bis-step')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 function goStep(i) {
   app.step = Math.min(Math.max(i, 0), app.groups.length);
   showStep({ scroll: true });
@@ -320,7 +334,7 @@ function showStep({ scroll }) {
   if (label) {
     label.textContent = app.step < n
       ? `Group ${app.step + 1} of ${n}: ${app.groups[app.step].name}. Pick ${app.rules.picksPerGroup}.`
-      : 'Last step: choose your Best in Show call, then tap Save.';
+      : `Last step: choose your top ${bisMax()} Best in Show calls, then tap Save.`;
   }
   const back = document.getElementById('wiz-back');
   const next = document.getElementById('wiz-next');
@@ -356,7 +370,7 @@ function updateDots() {
   });
   const star = document.getElementById(`dot-${app.groups.length}`);
   if (star) {
-    star.classList.toggle('done', Boolean(app.draft.bisPick));
+    star.classList.toggle('done', bisDone());
     star.classList.toggle('current', app.step === app.groups.length);
   }
 }
@@ -461,7 +475,7 @@ function randomPicks(e) {
   if (!requireIdentity()) return;
   const btn = e.currentTarget;
   const ppg = app.rules.picksPerGroup;
-  const complete = app.groups.every((g) => app.draft.picks[g.key].length === ppg) && app.draft.bisPick;
+  const complete = app.groups.every((g) => app.draft.picks[g.key].length === ppg) && bisDone();
   if (complete) {
     if (!btn.dataset.armed) {
       btn.dataset.armed = '1';
@@ -475,7 +489,7 @@ function randomPicks(e) {
     delete btn.dataset.armed;
     btn.textContent = 'Pick randomly for me';
     for (const g of app.groups) app.draft.picks[g.key] = [];
-    app.draft.bisPick = null;
+    app.draft.bisPicks = [];
   }
   let added = 0;
   for (const g of app.groups) {
@@ -486,10 +500,9 @@ function randomPicks(e) {
       added += 1;
     }
   }
-  if (!app.draft.bisPick) {
-    const ids = allPicks();
-    app.draft.bisPick = ids[Math.floor(Math.random() * ids.length)];
-  }
+  // Fill the remaining Best in Show calls at random from the team
+  const pool = shuffle(allPicks().filter((id) => !app.draft.bisPicks.includes(id)));
+  while (app.draft.bisPicks.length < bisMax() && pool.length) app.draft.bisPicks.push(pool.pop());
   store.set('dd_draft', app.draft);
   refreshSelection();
   if (isWizard()) goStep(app.groups.length); // team is full: show the Best in Show step
@@ -537,7 +550,7 @@ function toggle(b) {
   if (i < 0 && !requireIdentity()) return; // removing is always allowed; adding needs step 1
   if (i >= 0) {
     list.splice(i, 1);
-    if (app.draft.bisPick === b.id) app.draft.bisPick = null;
+    app.draft.bisPicks = app.draft.bisPicks.filter((id) => id !== b.id);
   } else if (list.length >= app.rules.picksPerGroup) {
     toast(`You already have ${app.rules.picksPerGroup} ${app.groupByKey.get(b.group).name} dogs. Tap one to remove it first.`, { kind: 'warn' });
     return;
@@ -559,6 +572,19 @@ function toggle(b) {
       goStep(nextStep);
     }, 650);
   }
+}
+
+/** Add/remove a Best in Show call. Order of tapping = 1st, 2nd, 3rd choice. */
+function toggleBis(id) {
+  const calls = app.draft.bisPicks;
+  const i = calls.indexOf(id);
+  if (i >= 0) calls.splice(i, 1); // later choices move up
+  else if (calls.length >= bisMax()) {
+    toast(`You already have ${bisMax()} Best in Show calls. Tap one to remove it first.`, { kind: 'warn' });
+    return;
+  } else calls.push(id);
+  store.set('dd_draft', app.draft);
+  refreshSelection();
 }
 
 /** Update card states, counters, BIS chips, and the save bar without a full re-render. */
@@ -598,16 +624,25 @@ function refreshSelection() {
     if (!ids.length) chips.append(h('p', { class: 'muted' }, 'Your picks will show up here.'));
     for (const id of ids) {
       const b = app.byId.get(id);
+      const rank = app.draft.bisPicks.indexOf(id);
       chips.append(h('button', {
-        type: 'button', class: 'chip', 'aria-pressed': String(app.draft.bisPick === id),
-        onclick: () => { app.draft.bisPick = id; store.set('dd_draft', app.draft); refreshSelection(); },
-      }, h('img', { ...photoAttrs(id), alt: '', loading: 'lazy', onerror: onImgError }), b.name));
+        type: 'button', class: 'chip', 'aria-pressed': String(rank >= 0),
+        'aria-label': rank >= 0 ? `${b.name}, your ${ORDINAL[rank]} choice. Tap to remove.` : `Choose ${b.name}`,
+        onclick: () => toggleBis(id),
+      },
+      rank >= 0 ? h('span', { class: 'rank-badge' }, ORDINAL[rank]) : null,
+      h('img', { ...photoAttrs(id), alt: '', loading: 'lazy', onerror: onImgError }), b.name));
+    }
+    const status = document.getElementById('bis-status');
+    if (status) {
+      const n = app.draft.bisPicks.length;
+      status.textContent = n === bisMax() ? 'All set! Tap a choice to remove it.' : `Choose your ${ORDINAL[n]} choice (${n} of ${bisMax()}).`;
     }
   }
   updateDots();
   const total = ppg * app.groups.length;
   const progress = document.getElementById('save-progress');
-  progress.textContent = `${picked.size} of ${total} picked${app.draft.bisPick ? ' + Best in Show call' : ''}`;
+  progress.textContent = `${picked.size} of ${total} picked, ${app.draft.bisPicks.length} of ${bisMax()} Best in Show calls`;
 }
 
 /**
@@ -658,7 +693,8 @@ async function loadMyPicks() {
   try {
     const { first, last, pin } = readIdentity();
     const data = await api('/api/picks', { method: 'POST', body: { action: 'load', firstName: first, lastName: last, pin } });
-    app.draft = { first, last, picks: data.picks, bisPick: data.bisPick };
+    app.draft = { first, last, picks: data.picks, bisPicks: Array.isArray(data.bisPicks) ? data.bisPicks : [] };
+    const hadFewer = app.draft.bisPicks.length < bisMax();
     sanitizeDraft();
     store.set('dd_draft', app.draft);
     app.me = { first, last };
@@ -666,7 +702,14 @@ async function loadMyPicks() {
     refreshSelection();
     app.step = firstIncompleteStep();
     showStep({ scroll: false });
-    toast('Loaded your picks. Make changes and save again.', { kind: 'ok' });
+    if (hadFewer) {
+      showNotice('New: pick 3 Best in Show calls',
+        `You can now choose your top ${bisMax()} Best in Show calls instead of 1. If any of them wins, you get the +${app.rules.points.bestInShowCallBonus} bonus. `
+        + 'Your earlier call is kept as your 1st choice. Add the others in step 3, then tap Save.',
+        () => goStepOrScroll(app.groups.length));
+    } else {
+      toast('Loaded your picks. Make changes and save again.', { kind: 'ok' });
+    }
   } catch (e) {
     toast(e.message, { kind: 'error', ms: 5000 });
     if (/step 1/.test(e.message)) document.getElementById('in-first').focus();
@@ -684,16 +727,15 @@ async function savePicks() {
       else document.getElementById(`group-${missing[0].key}`).scrollIntoView({ behavior: 'smooth', block: 'start' });
       throw new Error(`Pick ${ppg} in every group. Still need: ${missing.map((g) => g.name).join(', ')}.`);
     }
-    if (!app.draft.bisPick) {
-      if (isWizard()) goStep(app.groups.length);
-      else document.getElementById('bis-step').scrollIntoView({ behavior: 'smooth', block: 'center' });
-      throw new Error('Choose your Best in Show call (step 3).');
+    if (!bisDone()) {
+      goStepOrScroll(app.groups.length);
+      throw new Error(`Choose your top ${bisMax()} Best in Show calls (step 3).`);
     }
     btn.disabled = true;
     btn.textContent = 'Saving...';
     const r = await api('/api/picks', {
       method: 'POST',
-      body: { action: 'save', firstName: first, lastName: last, pin, picks: app.draft.picks, bisPick: app.draft.bisPick },
+      body: { action: 'save', firstName: first, lastName: last, pin, picks: app.draft.picks, bisPicks: app.draft.bisPicks },
     });
     app.me = { first, last };
     store.set('dd_me', app.me);
@@ -794,7 +836,7 @@ function teamDetail(p) {
         return h('li', { class: e ? 'scored' : '' },
           h('img', { ...photoAttrs(id), alt: '', loading: 'lazy', onerror: onImgError }),
           h('span', { class: 'tn' }, b ? b.name : id,
-            p.bisPick === id ? h('span', { class: 'tag gold' }, 'BIS call') : null,
+            (p.bisPicks || []).includes(id) ? h('span', { class: 'tag gold' }, `BIS ${ORDINAL[p.bisPicks.indexOf(id)]}`) : null,
             underdog ? h('span', { class: 'tag' }, 'Underdog x2') : null),
           h('span', { class: 'tp' }, e ? `+${e.points}` : ''));
       })),
@@ -901,7 +943,7 @@ async function celebrate({ slot, breedId }) {
     lines.push(`Worth ${base} points`);
   }
   const mine = pickers.find((p) => p.name.toLowerCase() === meName());
-  const bisCall = slot === 'BIS' && mine && mine.bisPick === breedId;
+  const bisCall = slot === 'BIS' && mine && (mine.bisPicks || []).includes(breedId);
   const youLine = mine ? `You picked it! +${each + (bisCall ? pts.bestInShowCallBonus : 0)} for you${bisCall ? ' (including your Best in Show call bonus)' : ''}` : null;
 
   if (mine) floatPoints(document.getElementById(`row-${mine.id}`), `+${each}`);
@@ -949,7 +991,7 @@ function renderRules() {
       h('ol', { class: 'steps' },
         h('li', {}, 'Enter your first and last name and make up a 4-digit PIN.'),
         h('li', {}, `Pick ${app.rules.picksPerGroup} breeds in each of the 7 groups. Photos and one-line descriptions help if you don't know dogs.`),
-        h('li', {}, 'Choose one of your dogs as your Best in Show call.'),
+        h('li', {}, `Choose your top ${bisMax()} Best in Show calls from your dogs, most likely first.`),
         h('li', {}, 'Save. You can come back and change picks until noon on Thanksgiving.'),
         h('li', {}, 'Watch the show and this site together. Points pop up as winners are announced.'),
       ),
@@ -963,7 +1005,7 @@ function renderRules() {
             ['Places 2nd / 3rd / 4th in its group', `${p.place[2]} / ${p.place[3]} / ${p.place[4]}`],
             ['Reserve Best in Show (on top of its group win)', p.reserveBestInShow],
             ['Best in Show (on top of its group win)', p.bestInShow],
-            ['Your Best in Show call is right', `+${p.bestInShowCallBonus}`],
+            [`Any of your ${bisMax()} Best in Show calls wins`, `+${p.bestInShowCallBonus}`],
           ].map(([a, b]) => h('tr', {}, h('td', {}, a), h('td', {}, String(b)))))),
       h('p', {}, h('strong', {}, 'Underdog bonus: '), `if ${app.rules.underdogMaxPickers} or fewer players picked a breed, all of that breed's points are doubled for them.`),
       h('p', { class: 'muted' }, 'Ties are broken by who picked more group winners, then by who entered first.'),

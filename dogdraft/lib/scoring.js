@@ -14,6 +14,8 @@
 import { GROUP_KEYS } from './breeds.js';
 
 export const PICKS_PER_GROUP = 3;
+/** Best in Show calls per player (ranked 1st-3rd; any correct one earns the bonus). */
+export const BIS_CALLS = 3;
 
 export const POINTS = Object.freeze({
   place: { 1: 6, 2: 3, 3: 2, 4: 1 },
@@ -78,7 +80,7 @@ export function pickCounts(players) {
  * Tiebreakers: more group winners picked, then whoever entered first.
  * Players with identical total AND group-winner count share a rank.
  *
- * @param {Array<{id:number,name:string,picks:Record<string,string[]>,bisPick:string|null,createdAt:string}>} players
+ * @param {Array<{id:number,name:string,picks:Record<string,string[]>,bisPicks:string[],createdAt:string}>} players
  * @param {Record<string,string>} results revealed slot -> breedId
  */
 export function scorePlayers(players, results) {
@@ -102,7 +104,8 @@ export function scorePlayers(players, results) {
         if (pts > 0) breakdown.push({ breedId: id, points: pts, underdog, awards: bp.get(id).awards });
       }
     }
-    const bisCorrect = Boolean(results.BIS && p.bisPick === results.BIS);
+    // Bonus if Best in Show is ANY of the player's calls (same points for 1st, 2nd or 3rd choice)
+    const bisCorrect = Boolean(results.BIS && (p.bisPicks || []).includes(results.BIS));
     if (bisCorrect) total += POINTS.bestInShowCallBonus;
     return { ...p, total, winnersPicked, bisCorrect, breakdown };
   });

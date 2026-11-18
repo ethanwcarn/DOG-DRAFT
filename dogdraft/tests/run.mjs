@@ -46,6 +46,9 @@ async function call(handler, { method = 'POST', body, cookie, ip, headers = {}, 
 }
 
 const byGroup = (g) => BREEDS.filter((b) => b.group === g).map((b) => b.id);
+/** Three valid Best in Show calls from a set of picks. */
+const bis = (p) => [p.toy[0], p.hound[0], p.sporting[0]];
+
 function makePicks(offset = 0) {
   const p = {};
   for (const g of GROUP_KEYS) p[g] = byGroup(g).slice(offset, offset + 3);
@@ -67,9 +70,9 @@ async function test(name, fn) {
 console.log('Scoring unit tests');
 await test('points, underdog doubling, BIS call bonus, tiebreak', () => {
   const players = [
-    { id: 1, name: 'A', picks: { hound: ['x', 'y'] }, bisPick: 'x', createdAt: '2026-01-01' },
-    { id: 2, name: 'B', picks: { hound: ['x', 'z'] }, bisPick: 'z', createdAt: '2026-01-02' },
-    { id: 3, name: 'C', picks: { hound: ['x', 'z'] }, bisPick: 'x', createdAt: '2026-01-03' },
+    { id: 1, name: 'A', picks: { hound: ['x', 'y'] }, bisPicks: ['x'], createdAt: '2026-01-01' },
+    { id: 2, name: 'B', picks: { hound: ['x', 'z'] }, bisPicks: ['z'], createdAt: '2026-01-02' },
+    { id: 3, name: 'C', picks: { hound: ['x', 'z'] }, bisPicks: ['x'], createdAt: '2026-01-03' },
   ];
   const r = scorePlayers(players, { 'hound:1': 'x', 'hound:2': 'y', BIS: 'x' });
   // x picked by 3 (not underdog): 6 + 15 = 21. y picked by 1 (underdog): 3*2 = 6.
@@ -82,8 +85,8 @@ await test('points, underdog doubling, BIS call bonus, tiebreak', () => {
 });
 await test('true ties share rank; underdog applies to 2 pickers', () => {
   const players = [
-    { id: 1, name: 'A', picks: { toy: ['p'] }, bisPick: 'p', createdAt: '1' },
-    { id: 2, name: 'B', picks: { toy: ['p'] }, bisPick: 'p', createdAt: '2' },
+    { id: 1, name: 'A', picks: { toy: ['p'] }, bisPicks: ['p'], createdAt: '1' },
+    { id: 2, name: 'B', picks: { toy: ['p'] }, bisPicks: ['p'], createdAt: '2' },
   ];
   const r = scorePlayers(players, { 'toy:1': 'p' });
   assert.equal(r.players[0].total, 12);
@@ -91,7 +94,7 @@ await test('true ties share rank; underdog applies to 2 pickers', () => {
   assert.equal(r.players[1].rank, 1);
 });
 await test('unentered optional placements score 0', () => {
-  const r = scorePlayers([{ id: 1, name: 'A', picks: { toy: ['p', 'q'] }, bisPick: 'p', createdAt: '1' }], {});
+  const r = scorePlayers([{ id: 1, name: 'A', picks: { toy: ['p', 'q'] }, bisPicks: ['p'], createdAt: '1' }], {});
   assert.equal(r.players[0].total, 0);
 });
 
@@ -101,33 +104,33 @@ const ann = { firstName: 'Ann', lastName: 'Lee', pin: '1234' };
 await test('save requires 3 per group', async () => {
   const bad = makePicks();
   bad.toy = bad.toy.slice(0, 2);
-  const r = await call(picks, { body: { action: 'save', ...ann, picks: bad, bisPick: bad.hound[0] } });
+  const r = await call(picks, { body: { action: 'save', ...ann, picks: bad, bisPicks: bis(makePicks()) } });
   assert.equal(r.status, 400);
 });
 await test('save rejects breed from the wrong group', async () => {
   const bad = makePicks();
   bad.toy = [byGroup('hound')[0], ...bad.toy.slice(1)];
-  const r = await call(picks, { body: { action: 'save', ...ann, picks: bad, bisPick: bad.toy[1] } });
+  const r = await call(picks, { body: { action: 'save', ...ann, picks: bad, bisPicks: [bad.toy[1], bad.hound[0], bad.sporting[0]] } });
   assert.equal(r.status, 400);
 });
 await test('save rejects BIS call that is not one of your picks', async () => {
   const p = makePicks();
-  const r = await call(picks, { body: { action: 'save', ...ann, picks: p, bisPick: byGroup('hound')[20] } });
+  const r = await call(picks, { body: { action: 'save', ...ann, picks: p, bisPicks: [byGroup('hound')[20], p.toy[0], p.sporting[0]] } });
   assert.equal(r.status, 400);
 });
 await test('save rejects bad PIN and bad names', async () => {
   const p = makePicks();
-  assert.equal((await call(picks, { body: { action: 'save', ...ann, pin: '12a4', picks: p, bisPick: p.toy[0] } })).status, 400);
-  assert.equal((await call(picks, { body: { action: 'save', ...ann, firstName: '<script>', picks: p, bisPick: p.toy[0] } })).status, 400);
+  assert.equal((await call(picks, { body: { action: 'save', ...ann, pin: '12a4', picks: p, bisPicks: bis(p) } })).status, 400);
+  assert.equal((await call(picks, { body: { action: 'save', ...ann, firstName: '<script>', picks: p, bisPicks: bis(p) } })).status, 400);
 });
 await test('valid save creates entry; update needs same PIN', async () => {
   const p = makePicks();
-  const r1 = await call(picks, { body: { action: 'save', ...ann, picks: p, bisPick: p.toy[0] } });
+  const r1 = await call(picks, { body: { action: 'save', ...ann, picks: p, bisPicks: bis(p) } });
   assert.equal(r1.status, 201);
   const p2 = makePicks(3);
-  const r2 = await call(picks, { body: { action: 'save', ...ann, lastName: 'LEE', picks: p2, bisPick: p2.toy[0] } });
+  const r2 = await call(picks, { body: { action: 'save', ...ann, lastName: 'LEE', picks: p2, bisPicks: bis(p2) } });
   assert.equal(r2.status, 200, 'same name different case updates');
-  const r3 = await call(picks, { body: { action: 'save', ...ann, pin: '9999', picks: p2, bisPick: p2.toy[0] } });
+  const r3 = await call(picks, { body: { action: 'save', ...ann, pin: '9999', picks: p2, bisPicks: bis(p2) } });
   assert.equal(r3.status, 403);
 });
 await test('load returns picks only with right PIN', async () => {
@@ -148,7 +151,7 @@ await test('rate limit kicks in on repeated PIN guesses for one name', async () 
 });
 await test('cross-origin POST is rejected', async () => {
   const p = makePicks();
-  const r = await call(picks, { body: { action: 'save', firstName: 'Eve', lastName: 'X', pin: '1111', picks: p, bisPick: p.toy[0] }, headers: { origin: 'https://evil.example' } });
+  const r = await call(picks, { body: { action: 'save', firstName: 'Eve', lastName: 'X', pin: '1111', picks: p, bisPicks: bis(p) }, headers: { origin: 'https://evil.example' } });
   assert.equal(r.status, 403);
 });
 await test('non-JSON POST is rejected', async () => {
@@ -158,40 +161,75 @@ await test('non-JSON POST is rejected', async () => {
 
 await test('one entry per device: second name from same browser is refused', async () => {
   const p = makePicks();
-  const first = await call(picks, { body: { action: 'save', firstName: 'Dee', lastName: 'Vice', pin: '5555', picks: p, bisPick: p.toy[0] } });
+  const first = await call(picks, { body: { action: 'save', firstName: 'Dee', lastName: 'Vice', pin: '5555', picks: p, bisPicks: bis(p) } });
   assert.equal(first.status, 201);
   const cookie = first.headers['set-cookie'];
   assert.match(cookie, /^dd_device=[a-f0-9]{32}; Path=\/api; HttpOnly; Secure; SameSite=Lax/);
   const dev = cookie.split(';')[0];
   // Same browser, different name -> refused with a helpful message
-  const second = await call(picks, { cookie: dev, body: { action: 'save', firstName: 'Dee', lastName: 'Two', pin: '5555', picks: p, bisPick: p.toy[0] } });
+  const second = await call(picks, { cookie: dev, body: { action: 'save', firstName: 'Dee', lastName: 'Two', pin: '5555', picks: p, bisPicks: bis(p) } });
   assert.equal(second.status, 409);
   assert.match(second.body.error, /already has an entry for Dee Vice/);
   // Same browser can still edit its own entry
-  const edit = await call(picks, { cookie: dev, body: { action: 'save', firstName: 'Dee', lastName: 'Vice', pin: '5555', picks: makePicks(3), bisPick: makePicks(3).toy[0] } });
+  const edit = await call(picks, { cookie: dev, body: { action: 'save', firstName: 'Dee', lastName: 'Vice', pin: '5555', picks: makePicks(3), bisPicks: bis(makePicks(3)) } });
   assert.equal(edit.status, 200);
   // A different browser (no cookie) can create its own entry
-  const other = await call(picks, { body: { action: 'save', firstName: 'Other', lastName: 'Phone', pin: '6666', picks: p, bisPick: p.toy[0] } });
+  const other = await call(picks, { body: { action: 'save', firstName: 'Other', lastName: 'Phone', pin: '6666', picks: p, bisPicks: bis(p) } });
   assert.equal(other.status, 201);
   // Loading an entry on a new browser tags it, so it can't then make a second entry
   const load = await call(picks, { body: { action: 'load', firstName: 'Dee', lastName: 'Vice', pin: '5555' } });
   assert.equal(load.status, 200);
   const laptop = load.headers['set-cookie'].split(';')[0];
   assert.equal(laptop, dev, 'laptop gets the same device id as the entry');
-  const sneaky = await call(picks, { cookie: laptop, body: { action: 'save', firstName: 'Dee', lastName: 'Three', pin: '5555', picks: p, bisPick: p.toy[0] } });
+  const sneaky = await call(picks, { cookie: laptop, body: { action: 'save', firstName: 'Dee', lastName: 'Three', pin: '5555', picks: p, bisPicks: bis(p) } });
   assert.equal(sneaky.status, 409);
   // Malformed cookies are ignored rather than trusted
-  const junk = await call(picks, { cookie: 'dd_device=../../etc', body: { action: 'save', firstName: 'Junk', lastName: 'Cookie', pin: '7777', picks: p, bisPick: p.toy[0] } });
+  const junk = await call(picks, { cookie: 'dd_device=../../etc', body: { action: 'save', firstName: 'Junk', lastName: 'Cookie', pin: '7777', picks: p, bisPicks: bis(p) } });
   assert.equal(junk.status, 201);
   // Clean up so later scoring tests see the same 3 players as before
   await pg.query("DELETE FROM players WHERE name_key IN ('dee vice', 'other phone', 'junk cookie')");
 });
 
+await test('Best in Show calls: exactly 3, distinct, from your own picks', async () => {
+  const p = makePicks();
+  const base = { action: 'save', firstName: 'Bis', lastName: 'Rules', pin: '8888', picks: p };
+  assert.equal((await call(picks, { body: { ...base, bisPicks: [p.toy[0]] } })).status, 400, 'only 1 call');
+  assert.equal((await call(picks, { body: { ...base, bisPick: p.toy[0] } })).status, 400, 'old single-call client');
+  assert.equal((await call(picks, { body: { ...base, bisPicks: [p.toy[0], p.toy[0], p.hound[0]] } })).status, 400, 'duplicate');
+  assert.equal((await call(picks, { body: { ...base, bisPicks: [p.toy[0], p.hound[0], 'not-a-dog'] } })).status, 400, 'not mine');
+  const ok = await call(picks, { body: { ...base, bisPicks: bis(p) } });
+  assert.equal(ok.status, 201);
+  const loaded = await call(picks, { body: { action: 'load', firstName: 'Bis', lastName: 'Rules', pin: '8888' } });
+  assert.deepEqual(loaded.body.bisPicks, bis(p), 'order is kept');
+  await pg.query("DELETE FROM players WHERE name_key = 'bis rules'");
+});
+await test('entries saved before multiple calls: single call still loads and scores', async () => {
+  const p = makePicks();
+  await call(picks, { body: { action: 'save', firstName: 'Old', lastName: 'Timer', pin: '4444', picks: p, bisPicks: bis(p) } });
+  // Simulate a row from the old version: only bis_pick, no bis_picks
+  await pg.query("UPDATE players SET bis_picks = NULL, bis_pick = $1 WHERE name_key = 'old timer'", [p.hound[0]]);
+  const loaded = await call(picks, { body: { action: 'load', firstName: 'Old', lastName: 'Timer', pin: '4444' } });
+  assert.deepEqual(loaded.body.bisPicks, [p.hound[0]]);
+  const { loadPlayers } = await import('../lib/game.js');
+  const me = (await loadPlayers()).find((x) => x.name === 'Old Timer');
+  assert.deepEqual(me.bisPicks, [p.hound[0]]);
+  assert.equal(scorePlayers([me], { 'hound:1': p.hound[0], BIS: p.hound[0] }).players[0].bisCorrect, true);
+  // ...and they can edit to add the new calls
+  const edited = await call(picks, { body: { action: 'save', firstName: 'Old', lastName: 'Timer', pin: '4444', picks: p, bisPicks: [p.hound[0], p.toy[1], p.herding[0]] } });
+  assert.equal(edited.status, 200);
+  await pg.query("DELETE FROM players WHERE name_key = 'old timer'");
+});
+await test('any of the 3 calls earns the bonus, once', () => {
+  const r = scorePlayers([{ id: 1, name: 'A', picks: { toy: ['p', 'q', 'r'] }, bisPicks: ['q', 'p', 'r'], createdAt: '1' }], { 'toy:1': 'p', BIS: 'p' });
+  // p picked by 1 player (underdog x2): (6 + 15) * 2 = 42, plus one +10 bonus
+  assert.equal(r.players[0].total, 52);
+});
+
 // More players for scoring
 const bob = { firstName: 'Bob', lastName: 'Ray', pin: '2222' };
 const cat = { firstName: 'Cat', lastName: 'Kim', pin: '3333' };
-await call(picks, { body: { action: 'save', ...bob, picks: makePicks(0), bisPick: makePicks(0).hound[0] } });
-await call(picks, { body: { action: 'save', ...cat, picks: makePicks(0), bisPick: makePicks(0).hound[1] } });
+await call(picks, { body: { action: 'save', ...bob, picks: makePicks(0), bisPicks: [makePicks(0).toy[0], makePicks(0).hound[0], makePicks(0).sporting[0]] } });
+await call(picks, { body: { action: 'save', ...cat, picks: makePicks(0), bisPicks: [makePicks(0).hound[1], makePicks(0).toy[0], makePicks(0).sporting[0]] } });
 
 await test('state before lock hides picks', async () => {
   const r = await call(state, { method: 'GET' });
@@ -222,7 +260,7 @@ process.env.LOCK_AT = new Date(Date.now() - 1000).toISOString();
 
 await test('saving after lock is refused', async () => {
   const p = makePicks();
-  const r = await call(picks, { body: { action: 'save', ...bob, picks: p, bisPick: p.toy[0] } });
+  const r = await call(picks, { body: { action: 'save', ...bob, picks: p, bisPicks: bis(p) } });
   assert.equal(r.status, 423);
 });
 

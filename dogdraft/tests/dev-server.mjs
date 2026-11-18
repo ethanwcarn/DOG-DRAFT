@@ -30,6 +30,11 @@ http.createServer(async (req, res) => {
     process.env.LOCK_AT = new Date(Date.now() + (url.searchParams.get('state') === 'locked' ? -1000 : 2 * 86400e3)).toISOString();
     return res.end('ok');
   }
+  if (url.pathname === '/__dev/legacy') {
+    // Make an entry look like it was saved before multiple Best in Show calls existed
+    await pg.query('UPDATE players SET bis_picks = NULL');
+    return res.end('ok');
+  }
   if (url.pathname === '/api/img') {
     res.writeHead(302, { Location: '/placeholder.svg' });
     return res.end();

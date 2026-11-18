@@ -31,7 +31,7 @@ export default route(async (req, res) => {
       winnersPicked: p.winnersPicked,
       bisCorrect: p.bisCorrect,
       picks: p.picks,
-      bisPick: p.bisPick,
+      bisPicks: p.bisPicks,
       breakdown: p.breakdown,
     }));
   } else {
