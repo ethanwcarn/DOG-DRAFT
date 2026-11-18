@@ -34,7 +34,11 @@ const app = {
   draft: store.get('dd_draft', { first: '', last: '', picks: {}, bisPick: null }),
   me: store.get('dd_me', null), // { first, last } after a successful save
   filter: '',
+  page: {}, // group key -> current page index in the breed carousel
 };
+
+const PAGE_SIZE = 6; // breeds shown per group at once (one row on desktop)
+const NAME_RE = /^[\p{L}][\p{L}\p{M} .'\u2019-]{0,29}$/u; // same rule the server enforces
 
 const imgSrc = (id) => photoSrc(id);
 const meName = () => (app.me ? `${app.me.first} ${app.me.last}`.toLowerCase() : null);
@@ -188,7 +192,7 @@ function renderPicks() {
   // Step 1: identity
   const first = h('input', { id: 'in-first', autocomplete: 'given-name', maxlength: 30, value: app.draft.first || '', oninput: saveIdentity });
   const last = h('input', { id: 'in-last', autocomplete: 'family-name', maxlength: 30, value: app.draft.last || '', oninput: saveIdentity });
-  const pin = h('input', { id: 'in-pin', type: 'password', inputmode: 'numeric', pattern: '[0-9]{4}', maxlength: 4, autocomplete: 'off' });
+  const pin = h('input', { id: 'in-pin', type: 'password', inputmode: 'numeric', pattern: '[0-9]{4}', maxlength: 4, autocomplete: 'off', oninput: updateGate });
   root.append(
     h('div', { class: 'card intro' },
       h('h2', {}, `Pick ${ppg} breeds from each of the 7 groups`),
@@ -209,22 +213,38 @@ function renderPicks() {
   // Step 2: the breed grid
   const search = h('input', {
     type: 'search', placeholder: 'Search breeds (try "fluffy" or "corgi")', value: app.filter, 'aria-label': 'Search breeds',
-    oninput: (e) => { app.filter = e.target.value; applyFilter(); },
+    oninput: (e) => {
+      app.filter = e.target.value;
+      app.page = {}; // new search: start every group at its first page
+      applyFilter();
+    },
   });
   root.append(h('div', { class: 'card step sticky-search' },
-    h('h3', {}, h('span', { class: 'step-num' }, '2'), `Choose your ${total} dogs`),
+    h('div', { class: 'step-head' },
+      h('h3', {}, h('span', { class: 'step-num' }, '2'), `Choose your ${total} dogs`),
+      h('button', { class: 'btn secondary small', id: 'random-btn', type: 'button', onclick: randomPicks }, 'Pick randomly for me'),
+    ),
+    h('p', { class: 'gate-hint', id: 'gate-hint', hidden: true }, 'Fill in your name and PIN in step 1 to start picking.'),
     search,
   ));
 
   for (const g of app.groups) {
     const breeds = app.breeds.filter((b) => b.group === g.key);
+    const grid = h('div', { class: 'breed-grid' }, breeds.map((b) => breedCard(b)));
+    addSwipe(grid, g.key);
     root.append(
       h('section', { class: 'group', id: `group-${g.key}`, style: { '--accent': g.color } },
         h('div', { class: 'group-head' },
           h('h3', {}, `${g.name} Group`),
+          h('div', { class: 'mine', id: `mine-${g.key}` }),
           h('span', { class: 'counter', id: `count-${g.key}` }, ''),
         ),
-        h('div', { class: 'breed-grid' }, breeds.map((b) => breedCard(b))),
+        h('div', { class: 'carousel' },
+          h('button', { class: 'pager prev', type: 'button', 'aria-label': `Previous ${g.name} breeds`, onclick: () => turnPage(g.key, -1) }),
+          grid,
+          h('button', { class: 'pager next', type: 'button', 'aria-label': `More ${g.name} breeds`, onclick: () => turnPage(g.key, 1) }),
+        ),
+        h('p', { class: 'page-info muted', id: `pageinfo-${g.key}` }),
         h('p', { class: 'no-match muted', hidden: true }, 'No breeds match your search in this group.'),
       ),
     );
@@ -240,6 +260,7 @@ function renderPicks() {
   document.getElementById('save-btn').onclick = savePicks;
   refreshSelection();
   applyFilter();
+  updateGate();
 }
 
 function breedCard(b) {
@@ -257,11 +278,161 @@ function saveIdentity() {
   app.draft.first = document.getElementById('in-first').value;
   app.draft.last = document.getElementById('in-last').value;
   store.set('dd_draft', app.draft);
+  updateGate();
+}
+
+// ---------------------------------------------------------------------------
+// Step 1 gate: no picking until name and PIN are filled in
+// ---------------------------------------------------------------------------
+
+/** What's still missing from step 1, as [label, inputId] pairs. */
+function missingIdentity() {
+  const val = (id) => (document.getElementById(id)?.value || '').trim();
+  const missing = [];
+  if (!NAME_RE.test(val('in-first'))) missing.push(['your first name', 'in-first']);
+  if (!NAME_RE.test(val('in-last'))) missing.push(['your last name', 'in-last']);
+  if (!/^\d{4}$/.test(val('in-pin'))) missing.push(['a 4-digit PIN', 'in-pin']);
+  return missing;
+}
+
+/** Dim the breed grid and show a hint while step 1 is incomplete. */
+function updateGate() {
+  const blocked = missingIdentity().length > 0;
+  document.getElementById('tab-picks')?.classList.toggle('needs-id', blocked);
+  const hint = document.getElementById('gate-hint');
+  if (hint) hint.hidden = !blocked;
+}
+
+/** Returns true if step 1 is complete; otherwise explains what's missing in a pop-up. */
+function requireIdentity() {
+  const missing = missingIdentity();
+  if (!missing.length) return true;
+  const list = missing.map(([label]) => label);
+  const text = list.length === 1 ? list[0] : `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
+  showNotice(
+    'First, tell us who you are',
+    `Before you pick dogs, please enter ${text} in step 1. Your PIN lets you come back and change your picks later.`,
+    () => {
+      const input = document.getElementById(missing[0][1]);
+      input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      input.focus({ preventScroll: true });
+    },
+  );
+  return false;
+}
+
+/** Small modal pop-up with one button. */
+function showNotice(title, text, onClose) {
+  const root = document.getElementById('overlay-root');
+  if (root.querySelector('.notice-card')) return; // already showing
+  const close = () => {
+    document.removeEventListener('keydown', onKey);
+    overlay.remove();
+    if (onClose) onClose();
+  };
+  const onKey = (e) => {
+    if (e.key === 'Escape' || e.key === 'Enter') {
+      e.preventDefault();
+      close();
+    }
+  };
+  const btn = h('button', { class: 'btn primary', type: 'button', onclick: close }, 'Got it');
+  const overlay = h('div', { class: 'overlay', onclick: (e) => e.target === overlay && close() },
+    h('div', { class: 'notice-card', role: 'alertdialog', 'aria-modal': 'true', 'aria-labelledby': 'notice-title', 'aria-describedby': 'notice-text' },
+      h('h2', { id: 'notice-title' }, title),
+      h('p', { id: 'notice-text' }, text),
+      btn));
+  root.appendChild(overlay);
+  document.addEventListener('keydown', onKey);
+  btn.focus();
+}
+
+// ---------------------------------------------------------------------------
+// Random picks
+// ---------------------------------------------------------------------------
+
+/**
+ * Fill every empty slot with random breeds (keeping picks already made) and
+ * choose a random Best in Show call if there isn't one. When the entry is
+ * already complete, a second tap re-rolls everything.
+ */
+function randomPicks(e) {
+  if (!requireIdentity()) return;
+  const btn = e.currentTarget;
+  const ppg = app.rules.picksPerGroup;
+  const complete = app.groups.every((g) => app.draft.picks[g.key].length === ppg) && app.draft.bisPick;
+  if (complete) {
+    if (!btn.dataset.armed) {
+      btn.dataset.armed = '1';
+      btn.textContent = 'Tap again to re-roll all';
+      setTimeout(() => {
+        delete btn.dataset.armed;
+        btn.textContent = 'Pick randomly for me';
+      }, 4000);
+      return;
+    }
+    delete btn.dataset.armed;
+    btn.textContent = 'Pick randomly for me';
+    for (const g of app.groups) app.draft.picks[g.key] = [];
+    app.draft.bisPick = null;
+  }
+  let added = 0;
+  for (const g of app.groups) {
+    const list = app.draft.picks[g.key];
+    const pool = shuffle(app.breeds.filter((b) => b.group === g.key && !list.includes(b.id)).map((b) => b.id));
+    while (list.length < ppg && pool.length) {
+      list.push(pool.pop());
+      added += 1;
+    }
+  }
+  if (!app.draft.bisPick) {
+    const ids = allPicks();
+    app.draft.bisPick = ids[Math.floor(Math.random() * ids.length)];
+  }
+  store.set('dd_draft', app.draft);
+  refreshSelection();
+  confetti(['#F5C542', '#2E7D32', '#1565C0', '#C62828'], 70, { y: 0.3, spread: Math.PI / 2 });
+  toast(added ? `Picked ${added} dogs for you. Swap any you like, then tap Save.` : 'Your team is already full.', { kind: 'ok', ms: 4500 });
+}
+
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// ---------------------------------------------------------------------------
+// Carousel paging (6 breeds per group at a time)
+// ---------------------------------------------------------------------------
+
+function turnPage(groupKey, delta) {
+  app.page[groupKey] = (app.page[groupKey] || 0) + delta;
+  applyFilter({ animate: groupKey, dir: delta });
+}
+
+/** Swipe left/right on touch screens to change pages. */
+function addSwipe(el, groupKey) {
+  let x0 = null;
+  let y0 = null;
+  el.addEventListener('touchstart', (e) => {
+    x0 = e.touches[0].clientX;
+    y0 = e.touches[0].clientY;
+  }, { passive: true });
+  el.addEventListener('touchend', (e) => {
+    if (x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0;
+    const dy = e.changedTouches[0].clientY - y0;
+    x0 = null;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) turnPage(groupKey, dx < 0 ? 1 : -1);
+  }, { passive: true });
 }
 
 function toggle(b) {
   const list = app.draft.picks[b.group];
   const i = list.indexOf(b.id);
+  if (i < 0 && !requireIdentity()) return; // removing is always allowed; adding needs step 1
   if (i >= 0) {
     list.splice(i, 1);
     if (app.draft.bisPick === b.id) app.draft.bisPick = null;
@@ -292,6 +463,18 @@ function refreshSelection() {
       c.textContent = `${n} of ${ppg}`;
       c.classList.toggle('done', n === ppg);
     }
+    // Show this group's picks in its header, since they may be on another page
+    const mine = document.getElementById(`mine-${g.key}`);
+    if (mine) {
+      clear(mine);
+      for (const id of app.draft.picks[g.key]) {
+        const b = app.byId.get(id);
+        mine.append(h('button', {
+          type: 'button', class: 'mini', title: `Remove ${b.name}`, 'aria-label': `Remove ${b.name}`,
+          onclick: () => toggle(b),
+        }, h('img', { ...photoAttrs(id), alt: '', onerror: onImgError }), h('span', {}, b.name), h('span', { class: 'x', 'aria-hidden': 'true' }, '\u00d7')));
+      }
+    }
   }
   const chips = document.getElementById('bis-chips');
   if (chips) {
@@ -311,16 +494,38 @@ function refreshSelection() {
   progress.textContent = `${picked.size} of ${total} picked${app.draft.bisPick ? ' + Best in Show call' : ''}`;
 }
 
-function applyFilter() {
+/**
+ * Apply the search filter and the per-group page. Only PAGE_SIZE matching
+ * breeds are visible per group; picks live in app.draft, so they are kept no
+ * matter which page is showing.
+ */
+function applyFilter({ animate = null, dir = 1 } = {}) {
   const q = app.filter.trim().toLowerCase();
   document.querySelectorAll('#tab-picks .group').forEach((sec) => {
-    let shown = 0;
-    sec.querySelectorAll('.breed').forEach((el) => {
-      const match = !q || el.dataset.search.includes(q);
-      el.hidden = !match;
-      if (match) shown += 1;
-    });
-    sec.querySelector('.no-match').hidden = shown > 0;
+    const key = sec.id.replace('group-', '');
+    const cards = [...sec.querySelectorAll('.breed')];
+    const matches = cards.filter((el) => !q || el.dataset.search.includes(q));
+    const pages = Math.max(1, Math.ceil(matches.length / PAGE_SIZE));
+    const page = Math.min(Math.max(app.page[key] || 0, 0), pages - 1);
+    app.page[key] = page;
+    const visible = new Set(matches.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE));
+    for (const el of cards) el.hidden = !visible.has(el);
+
+    sec.querySelector('.pager.prev').disabled = page === 0;
+    sec.querySelector('.pager.next').disabled = page >= pages - 1;
+    sec.querySelector('.carousel').classList.toggle('single', pages === 1);
+    const info = sec.querySelector('.page-info');
+    info.textContent = matches.length
+      ? `Showing ${page * PAGE_SIZE + 1}-${Math.min((page + 1) * PAGE_SIZE, matches.length)} of ${matches.length} ${q ? 'matches' : 'breeds'}`
+      : '';
+    sec.querySelector('.no-match').hidden = matches.length > 0;
+
+    if (animate === key) {
+      const grid = sec.querySelector('.breed-grid');
+      grid.classList.remove('slide-left', 'slide-right');
+      void grid.offsetWidth; // restart the CSS animation
+      grid.classList.add(dir > 0 ? 'slide-left' : 'slide-right');
+    }
   });
 }
 
