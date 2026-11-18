@@ -11,6 +11,7 @@
  */
 import { h, clear, store, api } from './dom.js';
 import { confetti, showAward, toast, floatPoints, flip, onImgError } from './fx.js';
+import { initPhotos, photoSrc, photoAttrs } from './photos.js';
 
 const POLL_MS = 5000;
 const POLL_HIDDEN_MS = 30000;
@@ -35,7 +36,7 @@ const app = {
   filter: '',
 };
 
-const imgSrc = (id) => `/api/img?b=${encodeURIComponent(id)}`;
+const imgSrc = (id) => photoSrc(id);
 const meName = () => (app.me ? `${app.me.first} ${app.me.last}`.toLowerCase() : null);
 
 // ---------------------------------------------------------------------------
@@ -50,6 +51,7 @@ async function init() {
     app.breeds = data.breeds;
     app.byId = new Map(data.breeds.map((b) => [b.id, b]));
     app.rules = data.rules;
+    initPhotos(data.breeds);
     for (const g of app.groups) if (!Array.isArray(app.draft.picks[g.key])) app.draft.picks[g.key] = [];
     sanitizeDraft();
   } catch (e) {
@@ -245,7 +247,7 @@ function breedCard(b) {
     class: 'breed', type: 'button', dataset: { id: b.id, search: `${b.name} ${b.blurb}`.toLowerCase() },
     'aria-pressed': 'false', onclick: () => toggle(b),
   },
-  h('img', { src: imgSrc(b.id), alt: '', loading: 'lazy', decoding: 'async', onerror: onImgError }),
+  h('img', { ...photoAttrs(b.id), alt: '', loading: 'lazy', decoding: 'async', onerror: onImgError }),
   h('span', { class: 'check', 'aria-hidden': 'true' }),
   h('span', { class: 'breed-name' }, b.name),
   h('span', { class: 'breed-blurb' }, b.blurb));
@@ -301,7 +303,7 @@ function refreshSelection() {
       chips.append(h('button', {
         type: 'button', class: 'chip', 'aria-pressed': String(app.draft.bisPick === id),
         onclick: () => { app.draft.bisPick = id; store.set('dd_draft', app.draft); refreshSelection(); },
-      }, h('img', { src: imgSrc(id), alt: '', loading: 'lazy', onerror: onImgError }), b.name));
+      }, h('img', { ...photoAttrs(id), alt: '', loading: 'lazy', onerror: onImgError }), b.name));
     }
   }
   const total = ppg * app.groups.length;
@@ -440,7 +442,7 @@ function renderBoard({ animate = true } = {}) {
       h('span', { class: 'rank' }, `#${p.rank}`),
       h('span', { class: 'who' }, p.name, isMe ? h('span', { class: 'badge' }, 'You') : null),
       h('span', { class: 'scorers' }, scoring.map((x) =>
-        h('img', { src: imgSrc(x.breedId), alt: app.byId.get(x.breedId)?.name || '', title: app.byId.get(x.breedId)?.name || '', onerror: onImgError }))),
+        h('img', { ...photoAttrs(x.breedId), alt: app.byId.get(x.breedId)?.name || '', title: app.byId.get(x.breedId)?.name || '', onerror: onImgError }))),
       h('span', { class: 'pts' }, `${p.total}`, h('small', {}, ' pts'))),
       open ? teamDetail(p) : null,
     ));
@@ -461,7 +463,7 @@ function teamDetail(p) {
         const e = earned.get(id);
         const underdog = (counts[id] || 0) <= app.rules.underdogMaxPickers;
         return h('li', { class: e ? 'scored' : '' },
-          h('img', { src: imgSrc(id), alt: '', loading: 'lazy', onerror: onImgError }),
+          h('img', { ...photoAttrs(id), alt: '', loading: 'lazy', onerror: onImgError }),
           h('span', { class: 'tn' }, b ? b.name : id,
             p.bisPick === id ? h('span', { class: 'tag gold' }, 'BIS call') : null,
             underdog ? h('span', { class: 'tag' }, 'Underdog x2') : null),
@@ -490,7 +492,7 @@ function renderResults() {
     const b = id && app.byId.get(id);
     return h('div', { class: `card top-award ${cls}` },
       h('p', { class: 'award-kicker' }, label),
-      b ? [h('img', { src: imgSrc(id), alt: b.name, onerror: onImgError }), h('h3', {}, b.name), h('p', { class: 'muted' }, pickedBy(id))]
+      b ? [h('img', { ...photoAttrs(id), alt: b.name, onerror: onImgError }), h('h3', {}, b.name), h('p', { class: 'muted' }, pickedBy(id))]
         : h('p', { class: 'muted' }, 'Not announced yet'));
   };
   root.append(h('div', { class: 'top-awards' }, top('BIS', 'Best in Show', 'gold'), top('RBIS', 'Reserve Best in Show', 'silver')));
@@ -505,7 +507,7 @@ function renderResults() {
         if (!b && place > 1) return null; // optional placements: just hide when not entered
         return h('li', { class: place === 1 ? 'first' : '' },
           h('span', { class: 'place' }, places[place - 1]),
-          b ? [h('img', { src: imgSrc(id), alt: '', onerror: onImgError }), h('span', {}, b.name), h('small', { class: 'muted' }, pickedBy(id))]
+          b ? [h('img', { ...photoAttrs(id), alt: '', onerror: onImgError }), h('span', {}, b.name), h('small', { class: 'muted' }, pickedBy(id))]
             : h('span', { class: 'muted' }, 'Not announced yet'));
       })),
     ))));
@@ -623,7 +625,7 @@ function renderRules() {
     ),
     h('details', { class: 'card credits' },
       h('summary', {}, 'Photo credits'),
-      h('p', { class: 'muted' }, 'Breed photos are the lead images of each breed\'s Wikipedia article, hosted on Wikimedia Commons under free licenses. Follow a link to see each photo\'s author and license.'),
+      h('p', { class: 'muted' }, 'Most breed photos come from the Dog-Breeds-Dataset by Atharva Taras, licensed CC BY 4.0 (github.com/AtharvaTaras/Dog-Breeds-Dataset). Photos were cropped and resized. A few breeds use the lead image from their Wikipedia article (Wikimedia Commons, free licenses). Breed links below go to Wikipedia.'),
       h('ul', {}, app.breeds.map((b) => h('li', {},
         h('a', { href: `https://en.wikipedia.org/wiki/${encodeURIComponent(b.wiki.replace(/ /g, '_'))}`, target: '_blank', rel: 'noopener noreferrer' }, b.name)))),
     ),

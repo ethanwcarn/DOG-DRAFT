@@ -18,7 +18,7 @@ setTestDatabase(async (text, params = []) => (await pg.query(text, params)).rows
 const picks = (await import('../api/picks.js')).default;
 const state = (await import('../api/state.js')).default;
 const admin = (await import('../api/admin.js')).default;
-const img = (await import('../api/img.js')).default;
+const breedsApi = (await import('../api/breeds.js')).default;
 
 let ipCounter = 0;
 async function call(handler, { method = 'POST', body, cookie, ip, headers = {}, url = '/' } = {}) {
@@ -236,9 +236,12 @@ await test('reset requires typed confirmation', async () => {
   assert.equal(ok.status, 200);
   assert.deepEqual(ok.body.results, {});
 });
-await test('image endpoint rejects unknown breeds', async () => {
-  const r = await call(img, { method: 'GET', url: '/api/img?b=not-a-dog' });
-  assert.equal(r.status, 404);
+await test('breeds API lists local photos that exist on disk', async () => {
+  const fs = await import('node:fs');
+  const r = await call(breedsApi, { method: 'GET' });
+  const withPhoto = r.body.breeds.filter((b) => b.photo);
+  assert.ok(withPhoto.length > 150);
+  for (const b of withPhoto) assert.ok(fs.existsSync(`public${b.photo}`), b.photo);
 });
 await test('no PIN hashes in any public response', async () => {
   const r = await call(state, { method: 'GET' });
