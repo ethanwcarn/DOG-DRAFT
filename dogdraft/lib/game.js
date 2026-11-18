@@ -30,7 +30,23 @@ export function cleanName(value, label) {
   if (!NAME_RE.test(v)) {
     throw new HttpError(400, `Please enter a valid ${label} (letters only, up to 30 characters).`);
   }
-  return v;
+  return formatName(v);
+}
+
+/**
+ * Standardize capitalization for display.
+ *   "sam carn" -> "Sam Carn", "SAM" -> "Sam", "o'brien" -> "O'Brien",
+ *   "mary-kate" -> "Mary-Kate"
+ * Names typed with deliberate mixed capitals ("McDonald", "DeShawn") are
+ * left exactly as typed, so we never "correct" them wrongly.
+ */
+export function formatName(raw) {
+  const v = String(raw ?? '').trim();
+  const hasLetters = /\p{L}/u.test(v);
+  const allLower = v === v.toLocaleLowerCase();
+  const allUpper = v === v.toLocaleUpperCase();
+  if (!hasLetters || (!allLower && !allUpper)) return v;
+  return v.toLocaleLowerCase().replace(/(^|[\s\-'\u2019.])(\p{L})/gu, (_, sep, ch) => sep + ch.toLocaleUpperCase());
 }
 
 /** Case- and accent-insensitive key so "jane doe" and "Jane Doe" are one player. */
@@ -102,7 +118,7 @@ export async function loadPlayers() {
   );
   return rows.map((r) => ({
     id: r.id,
-    name: `${r.first_name} ${r.last_name}`,
+    name: `${formatName(r.first_name)} ${formatName(r.last_name)}`, // fixes older entries saved as typed
     picks: typeof r.picks === 'string' ? JSON.parse(r.picks) : r.picks,
     bisPicks: rowBisPicks(r),
     createdAt: new Date(r.created_at).toISOString(),

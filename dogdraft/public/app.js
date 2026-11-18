@@ -48,6 +48,15 @@ const NAME_RE = /^[\p{L}][\p{L}\p{M} .'\u2019-]{0,29}$/u; // same rule the serve
 const imgSrc = (id) => photoSrc(id);
 const meName = () => (app.me ? `${app.me.first} ${app.me.last}`.toLowerCase() : null);
 
+/** Same capitalization rule as the server (lib/game.js formatName). */
+function formatName(raw) {
+  const v = String(raw ?? '').trim();
+  const allLower = v === v.toLocaleLowerCase();
+  const allUpper = v === v.toLocaleUpperCase();
+  if (!/\p{L}/u.test(v) || (!allLower && !allUpper)) return v;
+  return v.toLocaleLowerCase().replace(/(^|[\s\-'\u2019.])(\p{L})/gu, (_, sep, ch) => sep + ch.toLocaleUpperCase());
+}
+
 // ---------------------------------------------------------------------------
 // Startup
 // ---------------------------------------------------------------------------
@@ -252,7 +261,7 @@ function renderPicks() {
       h('p', { class: 'muted' }, 'Already entered? Type your name and PIN, then ',
         h('button', { class: 'linklike', type: 'button', onclick: loadMyPicks }, 'load my saved picks'), '.'),
       app.me ? h('p', { class: 'device-note' },
-        `This device already has an entry for ${app.me.first} ${app.me.last}. Enter that PIN and load your picks to make changes. Each person gets one entry.`) : null,
+        `This device already has an entry for ${formatName(app.me.first)} ${formatName(app.me.last)}. Enter that PIN and load your picks to make changes. Each person gets one entry.`) : null,
     ),
   );
 

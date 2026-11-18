@@ -23,7 +23,7 @@
 import { route, requireMethod, readJsonBody, sendJson, clientIp, HttpError } from '../lib/http.js';
 import { query } from '../lib/db.js';
 import { hashPin, verifyPin, rateLimit } from '../lib/security.js';
-import { cleanName, cleanPin, cleanPicks, isLocked, nameKey, rowBisPicks } from '../lib/game.js';
+import { cleanName, cleanPin, cleanPicks, isLocked, nameKey, rowBisPicks, formatName } from '../lib/game.js';
 import { readDeviceId, newDeviceId, deviceCookie } from '../lib/device.js';
 
 const MAX_PLAYERS = 100; // generous cap so a script can't flood the leaderboard
@@ -89,7 +89,7 @@ export default route(async (req, res) => {
   if (deviceId) {
     const mine = (await query('SELECT first_name, last_name FROM players WHERE device_id = $1 LIMIT 1', [deviceId]))[0];
     if (mine) {
-      throw new HttpError(409, `This device already has an entry for ${mine.first_name} ${mine.last_name}. `
+      throw new HttpError(409, `This device already has an entry for ${formatName(mine.first_name)} ${formatName(mine.last_name)}. `
         + 'Only one entry per person is allowed. To change those picks, type that name and PIN and tap "load my saved picks". '
         + 'If you share this device with someone, they can enter from their own phone.');
     }

@@ -252,6 +252,28 @@ await test('new entries are limited per IP (edits are not)', async () => {
   await pg.query("DELETE FROM rate_limits"); // don't let this test's counters affect later tests
 });
 
+await test('names: standard capitalization, deliberate capitals kept', async () => {
+  const { formatName } = await import('../lib/game.js');
+  const cases = [
+    ['sam carn', 'Sam Carn'], ['SAM', 'Sam'], ["o'brien", "O'Brien"], ['mary-kate', 'Mary-Kate'],
+    ['McDonald', 'McDonald'], ['DeShawn', 'DeShawn'], ['jean luc', 'Jean Luc'], ['élodie', 'Élodie'], ['j', 'J'],
+  ];
+  for (const [input, want] of cases) assert.equal(formatName(input), want, input);
+  const p = makePicks();
+  const r = await call(picks, { body: { action: 'save', firstName: 'sam', lastName: 'CARN', pin: '2468', picks: p, bisPicks: bis(p) } });
+  assert.equal(r.status, 201);
+  const row = (await pg.query("SELECT first_name, last_name FROM players WHERE name_key = 'sam carn'")).rows[0];
+  assert.deepEqual([row.first_name, row.last_name], ['Sam', 'Carn'], 'stored capitalized');
+  // An older entry saved as typed still displays capitalized
+  await pg.query("UPDATE players SET first_name = 'sam', last_name = 'carn' WHERE name_key = 'sam carn'");
+  const st = await call(state, { method: 'GET' });
+  assert.ok(st.body.leaderboard.some((x) => x.name === 'Sam Carn'));
+  // Same person typing a different case still edits the same entry
+  const again = await call(picks, { body: { action: 'save', firstName: 'SAM', lastName: 'carn', pin: '2468', picks: p, bisPicks: bis(p) } });
+  assert.equal(again.status, 200);
+  await pg.query("DELETE FROM players WHERE name_key = 'sam carn'");
+});
+
 // More players for scoring
 const bob = { firstName: 'Bob', lastName: 'Ray', pin: '2222' };
 const cat = { firstName: 'Cat', lastName: 'Kim', pin: '3333' };
