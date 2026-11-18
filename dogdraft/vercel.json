@@ -8,7 +8,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; img-src 'self' https://upload.wikimedia.org data:; script-src 'self'; style-src 'self'; connect-src 'self' https://en.wikipedia.org https://www.wikidata.org https://commons.wikimedia.org; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+          "value": "default-src 'self'; img-src 'self' https://upload.wikimedia.org https://images.dogapi.dog data:; script-src 'self'; style-src 'self'; connect-src 'self' https://en.wikipedia.org https://www.wikidata.org https://commons.wikimedia.org; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
         },
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },

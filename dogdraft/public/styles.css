@@ -184,6 +184,8 @@ table.points { border-collapse: collapse; width: 100%; max-width: 520px; }
 table.points td { padding: 8px 6px; border-bottom: 1px solid var(--line); }
 table.points td:last-child { text-align: right; font-weight: 700; }
 .credits ul { columns: 3 200px; font-size: .85rem; }
+.photo-credits { font-size: .85rem; padding-left: 18px; }
+.photo-credits li { margin-bottom: 3px; }
 .credits summary { cursor: pointer; font-weight: 700; }
 
 /* Overlays */

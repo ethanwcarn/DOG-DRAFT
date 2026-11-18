@@ -250,4 +250,58 @@ await test('no PIN hashes in any public response', async () => {
   assert.ok(!JSON.stringify(a.body).includes('scrypt$'));
 });
 
+console.log('Fallback photo tests');
+const fb = await import('../api/fallback-photos.js');
+const fakeApi = (name, extra = {}) => ({
+  id: name, type: 'breed',
+  attributes: {
+    name, other_names: extra.other || [],
+    images: extra.noImages ? [] : [{ id: 1, url: `https://images.dogapi.dog/${name}.jpg`, medium: `https://images.dogapi.dog/m/${name}.jpg`,
+      attribution: { author: 'Jane <b>Doe</b>', license: 'CC BY-SA 4.0', license_url: 'https://creativecommons.org/licenses/by-sa/4.0/', source_url: 'javascript:alert(1)' } }],
+  },
+});
+await test('matches by name, alias, and other_names; rejects bad URLs', () => {
+  const ours = BREEDS.filter((b) => ['plott-hound', 'pomeranian', 'belgian-sheepdog', 'chinook', 'keeshond'].includes(b.id));
+  const api = [fakeApi('Plott'), fakeApi('Pomeranian'), fakeApi('Some Belgian', { other: ['Groenendael'] }), fakeApi('Chinook', { noImages: true })];
+  const { photos, debug } = fb.matchPhotos(ours, api);
+  assert.equal(photos['plott-hound'].src, 'https://images.dogapi.dog/m/Plott.jpg');
+  assert.ok(photos.pomeranian && photos['belgian-sheepdog']);
+  assert.equal(photos.chinook, undefined);
+  assert.match(debug.chinook, /no images/);
+  assert.match(debug.keeshond, /no Dog API breed/);
+  assert.equal(photos.pomeranian.sourceUrl, null, 'javascript: URLs are dropped');
+  assert.equal(photos.pomeranian.license, 'CC BY-SA 4.0');
+});
+await test('non-dogapi image hosts are ignored', () => {
+  const ours = BREEDS.filter((b) => b.id === 'pomeranian');
+  const bad = fakeApi('Pomeranian');
+  bad.attributes.images[0].medium = 'https://evil.example/x.jpg';
+  bad.attributes.images[0].url = 'https://evil.example/y.jpg';
+  assert.equal(fb.matchPhotos(ours, [bad]).photos.pomeranian, undefined);
+});
+await test('endpoint pages through the API and survives an outage', async () => {
+  const realFetch = globalThis.fetch;
+  try {
+    let calls = 0;
+    globalThis.fetch = async (url) => {
+      calls += 1;
+      const page = Number(new URL(url).searchParams.get('page[number]'));
+      const data = page === 1 ? Array.from({ length: 100 }, (_, i) => fakeApi(`Filler ${i}`)) : [fakeApi('Pomeranian')];
+      return { ok: true, status: 200, json: async () => ({ data, links: page === 1 ? { next: 'x' } : {} }) };
+    };
+    const r = await call(fb.default, { method: 'GET', url: '/api/fallback-photos' });
+    assert.equal(r.status, 200);
+    assert.equal(calls, 2);
+    assert.ok(r.body.photos.pomeranian);
+    assert.match(r.headers['cache-control'], /s-maxage=604800/);
+    globalThis.fetch = async () => { throw new Error('network down'); };
+    const down = await call(fb.default, { method: 'GET', url: '/api/fallback-photos' });
+    assert.equal(down.status, 200);
+    assert.deepEqual(down.body.photos, {});
+    assert.match(down.headers['cache-control'], /s-maxage=300/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 console.log(`\n${passed} tests passed${process.exitCode ? ', some FAILED' : ''}`);

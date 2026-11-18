@@ -11,7 +11,7 @@
  */
 import { h, clear, store, api } from './dom.js';
 import { confetti, showAward, toast, floatPoints, flip, onImgError } from './fx.js';
-import { initPhotos, photoSrc, photoAttrs } from './photos.js';
+import { initPhotos, photoSrc, photoAttrs, photoCredits, onCredits } from './photos.js';
 
 const POLL_MS = 5000;
 const POLL_HIDDEN_MS = 30000;
@@ -55,6 +55,7 @@ async function init() {
     app.breeds = data.breeds;
     app.byId = new Map(data.breeds.map((b) => [b.id, b]));
     app.rules = data.rules;
+    onCredits(() => renderRules()); // refresh photo credits when fallback photos arrive
     initPhotos(data.breeds);
     for (const g of app.groups) if (!Array.isArray(app.draft.picks[g.key])) app.draft.picks[g.key] = [];
     sanitizeDraft();
@@ -797,6 +798,22 @@ async function celebrate({ slot, breedId }) {
   });
 }
 
+/** Author/license lines for photos that came from the Dog API. */
+function fallbackCredits() {
+  const entries = [...photoCredits()].filter(([id]) => app.byId.has(id));
+  if (!entries.length) return null;
+  return h('ul', { class: 'photo-credits' }, entries.map(([id, c]) => {
+    const parts = [h('strong', {}, app.byId.get(id).name), ': photo'];
+    if (c.author) parts.push(` by ${c.author}`);
+    if (c.license) {
+      parts.push(', ');
+      parts.push(c.licenseUrl ? h('a', { href: c.licenseUrl, target: '_blank', rel: 'noopener noreferrer' }, c.license) : c.license);
+    }
+    if (c.sourceUrl) parts.push(' (', h('a', { href: c.sourceUrl, target: '_blank', rel: 'noopener noreferrer' }, 'source'), ')');
+    return h('li', {}, parts);
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // How to Play tab
 // ---------------------------------------------------------------------------
@@ -830,7 +847,8 @@ function renderRules() {
     ),
     h('details', { class: 'card credits' },
       h('summary', {}, 'Photo credits'),
-      h('p', { class: 'muted' }, 'Most breed photos come from the Dog-Breeds-Dataset by Atharva Taras, licensed CC BY 4.0 (github.com/AtharvaTaras/Dog-Breeds-Dataset). Photos were cropped and resized. A few breeds use the lead image from their Wikipedia article (Wikimedia Commons, free licenses). Breed links below go to Wikipedia.'),
+      h('p', { class: 'muted' }, 'Most breed photos come from the Dog-Breeds-Dataset by Atharva Taras, licensed CC BY 4.0 (github.com/AtharvaTaras/Dog-Breeds-Dataset). Photos were cropped and resized. A few breeds use photos from Wikimedia Commons, found through the Dog API (dogapi.dog) or Wikipedia; credits for those are listed below. Breed links go to Wikipedia.'),
+      fallbackCredits(),
       h('ul', {}, app.breeds.map((b) => h('li', {},
         h('a', { href: `https://en.wikipedia.org/wiki/${encodeURIComponent(b.wiki.replace(/ /g, '_'))}`, target: '_blank', rel: 'noopener noreferrer' }, b.name)))),
     ),

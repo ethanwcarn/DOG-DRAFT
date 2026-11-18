@@ -2,21 +2,26 @@
  * Breed photos.
  *
  * Most breeds have a self-hosted photo (/breeds/<id>.jpg). For the few that
- * don't, the browser asks Wikipedia/Wikidata/Commons directly (their APIs
- * allow cross-site requests with origin=*), in 3 batched requests total, and
- * caches the answers in localStorage for a week. Any image already on screen
+ * don't:
+ *   1. ask our own /api/fallback-photos, which looks them up in the Dog API
+ *      (dogapi.dog, Wikimedia Commons photos with author/license credits)
+ *   2. for any still missing, ask Wikipedia/Wikidata/Commons directly from
+ *      the browser (their APIs allow cross-site requests with origin=*)
+ * Answers are cached in localStorage for a week. Any image already on screen
  * is updated in place when its photo arrives. If nothing is found the paw
  * placeholder stays.
  */
 import { store } from './dom.js';
 
 const PLACEHOLDER = '/placeholder.svg';
-const CACHE_KEY = 'dd_wiki_photos_v1';
+const CACHE_KEY = 'dd_fallback_photos_v2';
 const CACHE_MS = 7 * 24 * 3600 * 1000;
 const WIDTH = 480;
 
 const local = new Map(); // id -> /breeds/id.jpg
-const remote = new Map(); // id -> upload.wikimedia.org url
+const remote = new Map(); // id -> images.dogapi.dog or upload.wikimedia.org url
+const credits = new Map(); // id -> { author, license, licenseUrl, sourceUrl }
+const creditListeners = [];
 const wikiTitle = new Map(); // id -> Wikipedia article title
 
 export function initPhotos(breeds) {
@@ -26,7 +31,8 @@ export function initPhotos(breeds) {
   }
   const cached = store.get(CACHE_KEY, null);
   if (cached && Date.now() - cached.at < CACHE_MS) {
-    for (const [id, url] of Object.entries(cached.urls || {})) if (isWikimedia(url)) remote.set(id, url);
+    for (const [id, url] of Object.entries(cached.urls || {})) if (isAllowedRemote(url)) remote.set(id, url);
+    for (const [id, c] of Object.entries(cached.credits || {})) credits.set(id, c);
   }
   if (!cached || Date.now() - cached.at >= CACHE_MS) {
     lookupMissing().catch(() => {
@@ -47,6 +53,20 @@ export function photoAttrs(id) {
 
 function isWikimedia(url) {
   return typeof url === 'string' && /^https:\/\/upload\.wikimedia\.org\//.test(url);
+}
+
+function isAllowedRemote(url) {
+  return isWikimedia(url) || (typeof url === 'string' && /^https:\/\/images\.dogapi\.dog\//.test(url));
+}
+
+/** Credits for photos that came from the Dog API: Map id -> { author, license, licenseUrl, sourceUrl }. */
+export function photoCredits() {
+  return credits;
+}
+
+/** Call fn() whenever new credits arrive (used to refresh the How to Play tab). */
+export function onCredits(fn) {
+  creditListeners.push(fn);
 }
 
 async function api(host, params) {
@@ -72,9 +92,56 @@ function finalTitle(query, title) {
 }
 
 async function lookupMissing() {
-  const ids = [...wikiTitle.keys()];
-  if (!ids.length) return;
+  if (!wikiTitle.size) return;
   const found = {};
+  const foundCredits = {};
+
+  // 1. Our server's Dog API lookup (same origin, CDN-cached for a week)
+  try {
+    const r = await fetch('/api/fallback-photos');
+    if (r.ok) {
+      const data = await r.json();
+      for (const [id, p] of Object.entries(data?.photos || {})) {
+        if (!wikiTitle.has(id) || !isAllowedRemote(p?.src)) continue;
+        found[id] = p.src;
+        foundCredits[id] = { author: p.author, license: p.license, licenseUrl: p.licenseUrl, sourceUrl: p.sourceUrl };
+      }
+    }
+  } catch {
+    /* fall through to Wikipedia */
+  }
+  apply(found, foundCredits);
+
+  // 2. Wikipedia for anything the Dog API didn't have
+  const ids = [...wikiTitle.keys()].filter((id) => !found[id]);
+  if (ids.length) {
+    try {
+      await lookupWikipedia(ids, found);
+    } catch {
+      /* placeholders stay */
+    }
+    apply(found, {});
+  }
+  store.set(CACHE_KEY, { at: Date.now(), urls: found, credits: Object.fromEntries(credits) });
+}
+
+/** Record photos/credits and upgrade any matching images already on screen. */
+function apply(found, newCredits) {
+  for (const [id, url] of Object.entries(found)) {
+    if (remote.get(id) === url) continue;
+    remote.set(id, url);
+    document.querySelectorAll(`img[data-photo-id="${CSS.escape(id)}"]`).forEach((img) => {
+      delete img.dataset.fallback; // allow the error fallback to run again for the new URL
+      img.src = url;
+    });
+  }
+  if (Object.keys(newCredits).length) {
+    for (const [id, c] of Object.entries(newCredits)) credits.set(id, c);
+    creditListeners.forEach((fn) => fn());
+  }
+}
+
+async function lookupWikipedia(ids, found) {
 
   // 1. Lead-image thumbnails + Wikidata ids, one batched request
   const q1 = await api('en.wikipedia.org', {
@@ -113,12 +180,4 @@ async function lookupMissing() {
     }
   }
 
-  for (const [id, url] of Object.entries(found)) remote.set(id, url);
-  store.set(CACHE_KEY, { at: Date.now(), urls: found });
-  // Upgrade any images already on screen
-  for (const [id, url] of Object.entries(found)) {
-    document.querySelectorAll(`img[data-photo-id="${CSS.escape(id)}"]`).forEach((img) => {
-      img.src = url;
-    });
-  }
 }

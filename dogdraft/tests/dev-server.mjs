@@ -19,7 +19,7 @@ const pg = new PGlite();
 setTestDatabase(async (t, p = []) => (await pg.query(t, p)).rows);
 
 const handlers = {};
-for (const n of ['breeds', 'state', 'picks', 'admin']) handlers[n] = (await import(`../api/${n}.js`)).default;
+for (const n of ['breeds', 'state', 'picks', 'admin', 'fallback-photos']) handlers[n] = (await import(`../api/${n}.js`)).default;
 
 const pub = path.resolve('public');
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
@@ -34,7 +34,7 @@ http.createServer(async (req, res) => {
     res.writeHead(302, { Location: '/placeholder.svg' });
     return res.end();
   }
-  const m = /^\/api\/(\w+)$/.exec(url.pathname);
+  const m = /^\/api\/([\w-]+)$/.exec(url.pathname);
   if (m && handlers[m[1]]) {
     let raw = '';
     for await (const c of req) raw += c;
