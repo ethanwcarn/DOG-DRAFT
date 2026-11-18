@@ -19,8 +19,13 @@
         </div>
       </div>
       <div id="lock-pill" class="lock-pill" aria-live="polite">Loading&hellip;</div>
+      <!-- Phones only: menu button that opens the section list -->
+      <button id="menu-btn" class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="main-tabs">
+        <span id="menu-label" class="menu-label">My Picks</span>
+        <span class="bars" aria-hidden="true"><span></span><span></span><span></span></span>
+      </button>
     </div>
-    <nav class="wrap tabs" role="tablist" aria-label="Sections">
+    <nav id="main-tabs" class="wrap tabs" role="tablist" aria-label="Sections">
       <button role="tab" class="tab" data-tab="picks" aria-selected="true">My Picks</button>
       <button role="tab" class="tab" data-tab="board" aria-selected="false">Leaderboard</button>
       <button role="tab" class="tab" data-tab="results" aria-selected="false">Results</button>

@@ -274,6 +274,40 @@ table.points td:last-child { text-align: right; font-weight: 700; }
 .dot:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 #bis-step.slide-left { animation: slideL .28s ease; }
 
+/* ---------- Phone menu (hamburger) ---------- */
+.menu-btn { display: none; }
+@media (max-width: 640px) {
+  .site-header { position: sticky; }
+  .header-row { flex-wrap: nowrap; padding-bottom: 10px; }
+  .brand { flex: 1; min-width: 0; }
+  .brand img, .brand .sub { display: none; }
+  .brand h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 1.1rem; }
+  .menu-label { display: none; }
+  .lock-pill { font-size: .72rem; padding: 4px 9px; white-space: nowrap; }
+  .menu-btn {
+    display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0;
+    background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.25); color: #fff;
+    border-radius: 10px; padding: 7px 10px; cursor: pointer; font-weight: 700; font-size: .85rem;
+  }
+  .menu-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .menu-label { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bars { display: inline-flex; flex-direction: column; gap: 4px; }
+  .bars span { display: block; width: 18px; height: 2px; background: #fff; border-radius: 2px; transition: transform .2s ease, opacity .2s ease; }
+  .menu-open .bars span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+  .menu-open .bars span:nth-child(2) { opacity: 0; }
+  .menu-open .bars span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+  /* The section list becomes a dropdown under the header */
+  .tabs {
+    display: none; position: absolute; left: 0; right: 0; top: 100%;
+    flex-direction: column; gap: 0; padding: 6px 0; background: var(--navy);
+    box-shadow: 0 10px 24px rgba(0,0,0,.3); z-index: 40;
+  }
+  .menu-open .tabs { display: flex; animation: menuDrop .18s ease; }
+  .tab { text-align: left; padding: 14px 20px; border-bottom: 0; border-left: 4px solid transparent; font-size: 1rem; }
+  .tab[aria-selected="true"] { border-bottom: 0; border-left-color: var(--gold); background: rgba(255,255,255,.06); }
+  @keyframes menuDrop { from { opacity: 0; transform: translateY(-6px); } }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

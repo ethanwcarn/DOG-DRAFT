@@ -132,7 +132,32 @@ function render() {
 // Tabs
 // ---------------------------------------------------------------------------
 function setupTabs() {
+  const header = document.querySelector('.site-header');
+  const menuBtn = document.getElementById('menu-btn');
+  const setMenu = (open) => {
+    header.classList.toggle('menu-open', open);
+    menuBtn.setAttribute('aria-expanded', String(open));
+    menuBtn.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+  };
+  menuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setMenu(!header.classList.contains('menu-open'));
+  });
+  // Close the phone menu when tapping elsewhere or pressing Escape
+  document.addEventListener('click', (e) => {
+    if (header.classList.contains('menu-open') && !header.contains(e.target)) setMenu(false);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && header.classList.contains('menu-open')) {
+      setMenu(false);
+      menuBtn.focus();
+    }
+  });
+
   const go = (name) => {
+    setMenu(false);
+    const active = document.querySelector(`.tab[data-tab="${name}"]`);
+    document.getElementById('menu-label').textContent = active ? active.textContent : 'Menu';
     document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
     document.querySelectorAll('.panel').forEach((p) => (p.hidden = p.id !== `tab-${name}`));
     document.getElementById('save-bar').hidden = !(name === 'picks' && app.server && !app.server.locked);
@@ -160,8 +185,9 @@ function updateLockPill() {
   const pill = document.getElementById('lock-pill');
   const now = Date.now() + (s.clockOffset || 0);
   const ms = Date.parse(s.lockAt) - now;
+  const compact = PHONE.matches; // short wording so the phone header fits on one line
   if (s.locked || ms <= 0) {
-    pill.textContent = 'Picks locked. Enjoy the show!';
+    pill.textContent = compact ? 'Picks locked' : 'Picks locked. Enjoy the show!';
     pill.className = 'lock-pill live';
     // The server is the source of truth; refresh soon after the deadline passes.
     if (!s.locked && ms <= 0 && !app.lockRefresh) {
@@ -174,7 +200,9 @@ function updateLockPill() {
   const m = Math.floor((ms % 3600000) / 60000);
   const sec = Math.floor((ms % 60000) / 1000);
   const when = new Date(s.lockAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
-  pill.textContent = d > 0 ? `Picks lock in ${d}d ${hr}h ${m}m (${when})` : `Picks lock in ${hr}h ${m}m ${sec}s`;
+  if (compact) pill.textContent = d > 0 ? `Locks in ${d}d ${hr}h` : `Locks in ${hr}h ${m}m ${sec}s`;
+  else pill.textContent = d > 0 ? `Picks lock in ${d}d ${hr}h ${m}m (${when})` : `Picks lock in ${hr}h ${m}m ${sec}s`;
+  pill.title = `Picks lock ${new Date(s.lockAt).toLocaleString()}`;
   pill.className = ms < 3600000 ? 'lock-pill soon' : 'lock-pill';
 }
 
@@ -642,7 +670,9 @@ function refreshSelection() {
   updateDots();
   const total = ppg * app.groups.length;
   const progress = document.getElementById('save-progress');
-  progress.textContent = `${picked.size} of ${total} picked, ${app.draft.bisPicks.length} of ${bisMax()} Best in Show calls`;
+  progress.textContent = PHONE.matches
+    ? `${picked.size}/${total} dogs, ${app.draft.bisPicks.length}/${bisMax()} BIS calls`
+    : `${picked.size} of ${total} picked, ${app.draft.bisPicks.length} of ${bisMax()} Best in Show calls`;
 }
 
 /**
