@@ -156,6 +156,37 @@ await test('non-JSON POST is rejected', async () => {
   assert.equal(r.status, 415);
 });
 
+await test('one entry per device: second name from same browser is refused', async () => {
+  const p = makePicks();
+  const first = await call(picks, { body: { action: 'save', firstName: 'Dee', lastName: 'Vice', pin: '5555', picks: p, bisPick: p.toy[0] } });
+  assert.equal(first.status, 201);
+  const cookie = first.headers['set-cookie'];
+  assert.match(cookie, /^dd_device=[a-f0-9]{32}; Path=\/api; HttpOnly; Secure; SameSite=Lax/);
+  const dev = cookie.split(';')[0];
+  // Same browser, different name -> refused with a helpful message
+  const second = await call(picks, { cookie: dev, body: { action: 'save', firstName: 'Dee', lastName: 'Two', pin: '5555', picks: p, bisPick: p.toy[0] } });
+  assert.equal(second.status, 409);
+  assert.match(second.body.error, /already has an entry for Dee Vice/);
+  // Same browser can still edit its own entry
+  const edit = await call(picks, { cookie: dev, body: { action: 'save', firstName: 'Dee', lastName: 'Vice', pin: '5555', picks: makePicks(3), bisPick: makePicks(3).toy[0] } });
+  assert.equal(edit.status, 200);
+  // A different browser (no cookie) can create its own entry
+  const other = await call(picks, { body: { action: 'save', firstName: 'Other', lastName: 'Phone', pin: '6666', picks: p, bisPick: p.toy[0] } });
+  assert.equal(other.status, 201);
+  // Loading an entry on a new browser tags it, so it can't then make a second entry
+  const load = await call(picks, { body: { action: 'load', firstName: 'Dee', lastName: 'Vice', pin: '5555' } });
+  assert.equal(load.status, 200);
+  const laptop = load.headers['set-cookie'].split(';')[0];
+  assert.equal(laptop, dev, 'laptop gets the same device id as the entry');
+  const sneaky = await call(picks, { cookie: laptop, body: { action: 'save', firstName: 'Dee', lastName: 'Three', pin: '5555', picks: p, bisPick: p.toy[0] } });
+  assert.equal(sneaky.status, 409);
+  // Malformed cookies are ignored rather than trusted
+  const junk = await call(picks, { cookie: 'dd_device=../../etc', body: { action: 'save', firstName: 'Junk', lastName: 'Cookie', pin: '7777', picks: p, bisPick: p.toy[0] } });
+  assert.equal(junk.status, 201);
+  // Clean up so later scoring tests see the same 3 players as before
+  await pg.query("DELETE FROM players WHERE name_key IN ('dee vice', 'other phone', 'junk cookie')");
+});
+
 // More players for scoring
 const bob = { firstName: 'Bob', lastName: 'Ray', pin: '2222' };
 const cat = { firstName: 'Cat', lastName: 'Kim', pin: '3333' };

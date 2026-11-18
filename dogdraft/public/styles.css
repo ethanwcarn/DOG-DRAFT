@@ -101,6 +101,7 @@ input:focus, select:focus { outline: 2px solid var(--gold); outline-offset: 1px;
 /* Step 2 header + gate */
 .step-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
 .step-head h3 { margin: 0; }
+.device-note { margin: 10px 0 0; padding: 8px 12px; border-radius: 10px; background: #E8EEF9; color: var(--navy); font-size: .9rem; }
 .gate-hint { margin: 0 0 10px; padding: 8px 12px; border-radius: 10px; background: var(--gold-soft); color: var(--warn); font-weight: 600; font-size: .9rem; }
 .needs-id .breed-grid, .needs-id .pager { filter: grayscale(.6); opacity: .55; }
 /* Simple notice pop-up */

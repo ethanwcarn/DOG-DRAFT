@@ -50,6 +50,11 @@ export default route(async (req, res) => {
       pickCounts,
       leaderboard,
     },
-    { 'Cache-Control': 'public, max-age=0, s-maxage=2, stale-while-revalidate=3' },
+    {
+      // Browsers: always ask again (no reuse of old standings during the show).
+      'Cache-Control': 'no-cache',
+      // Vercel's CDN only: share one copy for 2 seconds to keep database load tiny.
+      'Vercel-CDN-Cache-Control': 'max-age=2, stale-while-revalidate=3',
+    },
   );
 });

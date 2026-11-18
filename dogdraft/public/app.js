@@ -208,6 +208,8 @@ function renderPicks() {
       ),
       h('p', { class: 'muted' }, 'Already entered? Type your name and PIN, then ',
         h('button', { class: 'linklike', type: 'button', onclick: loadMyPicks }, 'load my saved picks'), '.'),
+      app.me ? h('p', { class: 'device-note' },
+        `This device already has an entry for ${app.me.first} ${app.me.last}. Enter that PIN and load your picks to make changes. Each person gets one entry.`) : null,
     ),
   );
 
@@ -581,7 +583,11 @@ async function savePicks() {
     confetti(['#F5C542', '#2E7D32', '#1565C0', '#C62828'], 90, { y: 0.8, spread: Math.PI / 2 });
     toast(r.created ? 'You are in! Come back on Thanksgiving to watch your dogs score.' : 'Your picks were updated.', { kind: 'ok', ms: 5000 });
   } catch (e) {
-    toast(e.message, { kind: 'error', ms: 6000 });
+    if (e.status === 409 && /already has an entry/.test(e.message)) {
+      showNotice('One entry per person', e.message);
+    } else {
+      toast(e.message, { kind: 'error', ms: 6000 });
+    }
   } finally {
     btn.disabled = false;
     btn.textContent = 'Save my picks';

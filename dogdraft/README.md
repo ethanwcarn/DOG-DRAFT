@@ -62,6 +62,12 @@ Picks lock by default at **noon Mountain Time on Thursday, Nov 26, 2026**. To ch
 - 2nd to 4th place are optional. You can pre-enter them with **Save hidden**, then press **Reveal** when you're ready.
 - Finish with Reserve Best in Show, then Best in Show.
 
+## One entry per person
+
+The first time a browser saves an entry, the site remembers that device. The same browser can then only edit that entry. It can't create a second one under a different name. Editing still works from any device with the right name and PIN.
+
+This can be bypassed by clearing cookies, using a private window, or using another device. Check the player list on `/admin` before the lock, and use **Remove** for any duplicates. Two people who share one phone need to enter from separate devices.
+
 ## How it's built
 
 - Static HTML/CSS/JS in `public/` with no framework and no build step.

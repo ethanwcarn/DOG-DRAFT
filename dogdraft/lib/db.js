@@ -61,6 +61,10 @@ export function ensureSchema() {
         revealed    BOOLEAN NOT NULL DEFAULT false,
         updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
       )`);
+      // One entry per device: the browser's device id (see lib/device.js).
+      // ADD COLUMN IF NOT EXISTS keeps this safe on databases created earlier.
+      await run('ALTER TABLE players ADD COLUMN IF NOT EXISTS device_id TEXT');
+      await run('CREATE INDEX IF NOT EXISTS players_device_id_idx ON players (device_id)');
       await run(`CREATE TABLE IF NOT EXISTS rate_limits (
         key           TEXT PRIMARY KEY,
         count         INTEGER NOT NULL,
