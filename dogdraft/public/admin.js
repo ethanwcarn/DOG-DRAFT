@@ -96,6 +96,8 @@ function render() {
     !state.locked ? h('p', { class: 'muted' }, 'Heads up: picks are still open. Anything you reveal now is visible to players before they lock in. Use this only to test, then Reset all results.') : null,
   ));
 
+  root.append(pickStatsCard());
+
   // Best in Show block first (it is the finale, but it is easiest to find at the top)
   const winners = catalog.groups.map((g) => state.results[`${g.key}:1`]).filter(Boolean);
   root.append(h('div', { class: 'card admin-group', style: { '--accent': '#E0A826' } },
@@ -139,6 +141,45 @@ function render() {
     ),
   );
   window.scrollTo({ top: scrollY });
+}
+
+/**
+ * Pick stats: most-picked breeds per group, solo (underdog) picks, and the
+ * popular Best in Show calls. Counts only, never who picked what.
+ */
+function pickStatsCard() {
+  const st = state.pickStats;
+  if (!st) return null;
+  const n = st.playerCount;
+  const groupByKey = new Map(catalog.groups.map((g) => [g.key, g]));
+  const TOP = 5;
+
+  const bar = (count) => h('span', { class: 'stat-bar' },
+    h('span', { class: 'stat-fill', style: { width: `${n ? Math.round((count / n) * 100) : 0}%` } }));
+  // Highlight solo picks in the group lists only (the underdog bonus doesn't apply to BIS calls)
+  const row = (x, highlightSolo = true) => h('li', { class: highlightSolo && x.count <= st.underdogMaxPickers ? 'solo' : '' },
+    h('span', { class: 'stat-name' }, breedName(x.breedId)),
+    bar(x.count),
+    h('span', { class: 'stat-count' }, `${x.count}`));
+
+  const groups = st.groups.map((g) => {
+    const meta = groupByKey.get(g.key);
+    const top = g.breeds.slice(0, TOP);
+    const rest = g.breeds.slice(TOP);
+    return h('div', { class: 'stat-group', style: { '--accent': meta.color } },
+      h('h4', {}, `${meta.name}`),
+      h('p', { class: 'muted small' }, `${g.distinct} breeds picked, ${g.underdogs} solo`),
+      h('ol', { class: 'stat-list' }, top.map((x) => row(x))),
+      rest.length ? h('details', {}, h('summary', {}, `Show ${rest.length} more`), h('ol', { class: 'stat-list' }, rest.map((x) => row(x)))) : null);
+  });
+
+  return h('details', { class: 'card stats-card' },
+    h('summary', {}, h('strong', {}, `Pick stats (${n} players)`), h('span', { class: 'muted' }, ' tap to open')),
+    h('p', { class: 'muted' }, `Bars show the share of players who picked each breed. Highlighted rows are solo picks (only one player), which currently earn the underdog x2 bonus. Players can't see these numbers until picks lock.`),
+    h('div', { class: 'stats-grid' }, groups),
+    h('div', { class: 'stat-group bis', style: { '--accent': '#E0A826' } },
+      h('h4', {}, 'Best in Show calls'),
+      st.bisCalls.length ? h('ol', { class: 'stat-list' }, st.bisCalls.slice(0, 10).map((x) => row(x, false))) : h('p', { class: 'muted' }, 'No calls yet.')));
 }
 
 /** A button that asks "Sure?" on the first tap and acts on the second. */

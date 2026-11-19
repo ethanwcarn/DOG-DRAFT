@@ -310,6 +310,21 @@ table.points td:last-child { text-align: right; font-weight: 700; }
   @keyframes menuDrop { from { opacity: 0; transform: translateY(-6px); } }
 }
 
+/* Admin pick stats */
+.stats-card summary { cursor: pointer; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-top: 10px; }
+.stat-group { border-top: 5px solid var(--accent); background: #fff; border-radius: 10px; padding: 8px 10px; }
+.stat-group.bis { margin-top: 14px; }
+.stat-group h4 { margin: 4px 0 0; }
+.small { font-size: .8rem; margin: 2px 0 6px; }
+.stat-list { margin: 0; padding-left: 22px; }
+.stat-list li { display: grid; grid-template-columns: 1fr 70px 24px; align-items: center; gap: 8px; padding: 2px 0; font-size: .88rem; }
+.stat-list li.solo { background: var(--gold-soft); border-radius: 6px; }
+.stat-bar { height: 8px; background: #EEE9DF; border-radius: 4px; overflow: hidden; }
+.stat-fill { display: block; height: 100%; background: var(--accent); }
+.stat-count { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat-group details summary { cursor: pointer; font-size: .8rem; color: var(--muted); margin-top: 4px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

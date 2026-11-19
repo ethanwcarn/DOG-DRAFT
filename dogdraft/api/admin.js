@@ -14,8 +14,8 @@
 import { route, requireMethod, readJsonBody, sendJson, clientIp, HttpError } from '../lib/http.js';
 import { query } from '../lib/db.js';
 import { createAdminCookie, clearAdminCookie, requireAdmin, rateLimit, safeEqual } from '../lib/security.js';
-import { BREED_BY_ID } from '../lib/breeds.js';
-import { ALL_SLOTS, parseGroupSlot, scorePlayers } from '../lib/scoring.js';
+import { BREED_BY_ID, GROUPS } from '../lib/breeds.js';
+import { ALL_SLOTS, parseGroupSlot, scorePlayers, UNDERDOG_MAX_PICKERS } from '../lib/scoring.js';
 import { isLocked, lockAt, loadPlayers, loadResults } from '../lib/game.js';
 
 export default route(async (req, res) => {
@@ -132,5 +132,40 @@ async function adminState() {
     results: all.results,
     revealed: all.revealed,
     players: scored.players.map((p) => ({ id: p.id, name: p.name, total: p.total, rank: p.rank, createdAt: p.createdAt })),
+    pickStats: pickStats(players),
+  };
+}
+
+/**
+ * Admin-only pick statistics (players' picks stay hidden from everyone else
+ * until the lock). Counts only, no names: per group, every breed picked by
+ * at least one player, most popular first; plus Best in Show call counts.
+ */
+function pickStats(players) {
+  const groupCounts = new Map(GROUPS.map((g) => [g.key, new Map()]));
+  const bisCounts = new Map();
+  for (const p of players) {
+    for (const [g, ids] of Object.entries(p.picks || {})) {
+      const m = groupCounts.get(g);
+      if (!m) continue;
+      for (const id of ids) m.set(id, (m.get(id) || 0) + 1);
+    }
+    for (const id of p.bisPicks || []) bisCounts.set(id, (bisCounts.get(id) || 0) + 1);
+  }
+  const sorted = (m) => [...m].map(([breedId, count]) => ({ breedId, count }))
+    .sort((a, b) => b.count - a.count || a.breedId.localeCompare(b.breedId));
+  return {
+    playerCount: players.length,
+    underdogMaxPickers: UNDERDOG_MAX_PICKERS,
+    groups: GROUPS.map((g) => {
+      const list = sorted(groupCounts.get(g.key));
+      return {
+        key: g.key,
+        breeds: list,
+        distinct: list.length,
+        underdogs: list.filter((x) => x.count <= UNDERDOG_MAX_PICKERS).length,
+      };
+    }),
+    bisCalls: sorted(bisCounts),
   };
 }

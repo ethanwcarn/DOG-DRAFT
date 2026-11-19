@@ -83,13 +83,13 @@ await test('points, underdog doubling, BIS call bonus, tiebreak', () => {
   assert.equal(r.players[0].id, 1);
   assert.equal(r.players.find((p) => p.id === 2).total, 21);
 });
-await test('true ties share rank; underdog applies to 2 pickers', () => {
+await test('true ties share rank; 2 pickers is NOT an underdog (solo only)', () => {
   const players = [
     { id: 1, name: 'A', picks: { toy: ['p'] }, bisPicks: ['p'], createdAt: '1' },
     { id: 2, name: 'B', picks: { toy: ['p'] }, bisPicks: ['p'], createdAt: '2' },
   ];
   const r = scorePlayers(players, { 'toy:1': 'p' });
-  assert.equal(r.players[0].total, 12);
+  assert.equal(r.players[0].total, 6, 'shared pick: no x2');
   assert.equal(r.players[0].rank, 1);
   assert.equal(r.players[1].rank, 1);
 });
@@ -331,18 +331,31 @@ await test('hidden results do not leak to public state', async () => {
   assert.equal(adm.body.revealed['hound:2'], false);
 });
 await test('scores after lock (underdog + BIS call)', async () => {
-  // Bob & Cat picked H[0..2]; Ann picked H[3..5]. H[0] picked by 2 -> underdog x2.
+  // Bob & Cat picked H[0..2]; Ann picked H[3..5]. H[0] picked by 2 -> NOT an underdog (solo only).
   await call(admin, { cookie, body: { action: 'reveal', slots: ['hound:2'] } });
   await call(admin, { cookie, body: { action: 'set', slot: 'BIS', breedId: H[0], reveal: true } });
   const r = await call(state, { method: 'GET' });
   const bobRow = r.body.leaderboard.find((p) => p.name === 'Bob Ray');
   const catRow = r.body.leaderboard.find((p) => p.name === 'Cat Kim');
-  // H[0]: (6 + 15) * 2 = 42; H[1] 2nd: 3 * 2 = 6; Bob BIS call H[0] +10
-  assert.equal(bobRow.total, 42 + 6 + 10);
-  assert.equal(catRow.total, 42 + 6);
+  // H[0]: 6 + 15 = 21; H[1] 2nd: 3; Bob BIS call H[0] +10
+  assert.equal(bobRow.total, 21 + 3 + 10);
+  assert.equal(catRow.total, 21 + 3);
   assert.equal(bobRow.rank, 1);
   assert.equal(r.body.pickCounts[H[0]], 2);
   assert.ok(Array.isArray(bobRow.picks.hound));
+});
+await test('admin pick stats: counts per group, solo picks, BIS calls; admin only', async () => {
+  const a = await call(admin, { method: 'GET', cookie });
+  const st = a.body.pickStats;
+  assert.equal(st.playerCount, 3);
+  const hound = st.groups.find((g) => g.key === 'hound');
+  assert.deepEqual(hound.breeds.slice(0, 3).map((x) => x.count), [2, 2, 2], 'Bob and Cat share H[0..2]');
+  assert.equal(hound.underdogs, 3, "Ann's three hounds are solo picks");
+  assert.equal(st.bisCalls.reduce((n, x) => n + x.count, 0), 9, '3 players x 3 calls');
+  assert.ok(!JSON.stringify(st).includes('Bob'), 'no player names in stats');
+  const pub = await call(state, { method: 'GET' });
+  assert.equal(pub.body.pickStats, undefined, 'never in the public state');
+  assert.equal((await call(admin, { method: 'GET' })).status, 401);
 });
 await test('BIS and RBIS cannot be the same dog', async () => {
   const r = await call(admin, { cookie, body: { action: 'set', slot: 'RBIS', breedId: H[0], reveal: true } });

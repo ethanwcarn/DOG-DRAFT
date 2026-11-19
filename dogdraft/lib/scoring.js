@@ -24,8 +24,9 @@ export const POINTS = Object.freeze({
   bestInShowCallBonus: 10,
 });
 
-/** A breed picked by this many players or fewer is an underdog (points x2). */
-export const UNDERDOG_MAX_PICKERS = 2;
+/** A breed picked by this many players or fewer is an underdog (points x2).
+ *  1 = only when you are the ONLY player who picked it. */
+export const UNDERDOG_MAX_PICKERS = 1;
 export const UNDERDOG_MULTIPLIER = 2;
 
 export const ALL_SLOTS = [

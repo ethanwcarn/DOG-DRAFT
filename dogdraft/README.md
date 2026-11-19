@@ -14,7 +14,7 @@ A small party game for the National Dog Show on Thanksgiving. Players pick 3 bre
 | Reserve Best in Show (added to its group win) | 10 |
 | Best in Show (added to its group win) | 15 |
 | Any of the player's 3 Best in Show calls (ranked 1st-3rd) wins | +10 (once) |
-| Underdog: 2 or fewer players picked the breed | that breed's points x2 |
+| Underdog: you're the only player who picked the breed | that breed's points x2 |
 
 Ties: more group winners picked, then whoever entered first.
 

@@ -1051,7 +1051,9 @@ function renderRules() {
             ['Best in Show (on top of its group win)', p.bestInShow],
             [`Any of your ${bisMax()} Best in Show calls wins`, `+${p.bestInShowCallBonus}`],
           ].map(([a, b]) => h('tr', {}, h('td', {}, a), h('td', {}, String(b)))))),
-      h('p', {}, h('strong', {}, 'Underdog bonus: '), `if ${app.rules.underdogMaxPickers} or fewer players picked a breed, all of that breed's points are doubled for them.`),
+      h('p', {}, h('strong', {}, 'Underdog bonus: '), app.rules.underdogMaxPickers === 1
+        ? 'if you are the only player who picked a breed, all of that breed\'s points are doubled for you.'
+        : `if ${app.rules.underdogMaxPickers} or fewer players picked a breed, all of that breed's points are doubled for them.`),
       h('p', { class: 'muted' }, 'Ties are broken by who picked more group winners, then by who entered first.'),
     ),
     h('details', { class: 'card credits' },
