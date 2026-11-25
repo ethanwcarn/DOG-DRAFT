@@ -106,8 +106,20 @@ These limits are invisible to normal players:
 | Total players | 100 |
 | Hidden "honeypot" field | Saves that fill it in are rejected |
 | Admin login | 10 per 15 minutes |
+| Vercel BotID | Sign-in and pick saves must come from a real browser |
 
 To change a limit, edit `LIMITS` in `api/picks.js`. A CAPTCHA isn't used. For a private game this size it would add friction without much benefit. If a real attack ever happens, turn on Vercel's **Attack Challenge Mode** under the project's Firewall tab. It's one switch and needs no code.
+
+### Vercel BotID
+
+`public/botid.js` runs an invisible check in the browser, and `lib/botid.js` asks Vercel whether each sign-in or pick save came from a real browser. Bots get a 403 telling them to refresh. There's no puzzle for players to solve.
+
+- **Free tier:** basic BotID works on every plan. Deep Analysis (Firewall tab > Rules) is a paid Pro feature and isn't needed here.
+- **Emergency off switch:** if real players are being told to refresh and it doesn't help, add the environment variable `BOTID_DISABLED` = `1` in Vercel and redeploy. Everything else (rate limits, honeypot, one entry per device) keeps working.
+- **If BotID itself is down,** requests are allowed through and the error is logged, so an outage can't lock everyone out.
+- **The admin page isn't covered,** so a false alarm can't stop you entering results during the show. It still has its password and login limit.
+- **After upgrading the `botid` package,** run `npm run build:botid` and commit `public/botid.js`. A test fails if you forget.
+- **You can't test it with curl.** Vercel blocks requests that don't come from the real page.
 
 ## How it's built
 

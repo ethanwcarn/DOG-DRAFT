@@ -28,6 +28,7 @@ import { cleanName, cleanPin, isLocked, nameKey, formatName } from '../lib/game.
 import { readSession, sessionCookie, clearSessionCookie } from '../lib/session.js';
 import { verifyGoogleIdToken, googleClientId } from '../lib/google.js';
 import { query } from '../lib/db.js';
+import { requireHuman } from '../lib/botid.js';
 import {
   LIMITS, playerById, playerByNameKey, playerByGoogleSub, playerJson, createEntry, tagDevice, appendCookie,
 } from '../lib/players.js';
@@ -55,6 +56,7 @@ export default route(async (req, res) => {
     throw new HttpError(400, 'Something went wrong. Please refresh the page and try again.');
   }
   const ip = clientIp(req);
+  if (body.action !== 'logout') await requireHuman(req, 'auth');
 
   switch (body.action) {
     case 'logout':

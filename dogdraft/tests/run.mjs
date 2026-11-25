@@ -631,4 +631,83 @@ await test('endpoint pages through the API and survives an outage', async () => 
   }
 });
 
+console.log('\nBotID');
+const botid = await import('../lib/botid.js');
+
+await test('requests flagged as bots are refused on sign-in and picks, but sign-out still works', async () => {
+  botid.setTestBotCheck(() => true);
+  try {
+    const signIn = await call(auth, { body: { action: 'pin', firstName: 'Bot', lastName: 'Net', pin: '1234', hp: '' } });
+    assert.equal(signIn.status, 403);
+    assert.equal(signIn.body.error, botid.BOT_BLOCKED_MESSAGE);
+    const load = await call(picks, { body: { action: 'load', firstName: 'Bot', lastName: 'Net', pin: '1234', hp: '' } });
+    assert.equal(load.status, 403);
+    const out = await call(auth, { body: { action: 'logout' } });
+    assert.equal(out.status, 200);
+  } finally {
+    botid.setTestBotCheck(null);
+  }
+});
+
+await test('humans pass the bot check', async () => {
+  const savedLock = process.env.LOCK_AT;
+  process.env.LOCK_AT = new Date(Date.now() + 3600e3).toISOString(); // earlier tests lock the game
+  botid.setTestBotCheck(() => false);
+  try {
+    const r = await call(auth, { body: { action: 'pin', firstName: 'Real', lastName: 'Person', pin: '2468', hp: '' } });
+    assert.equal(r.status, 201); // new entry created
+  } finally {
+    botid.setTestBotCheck(null);
+    process.env.LOCK_AT = savedLock;
+  }
+});
+
+await test('a BotID outage lets people through instead of locking everyone out', async () => {
+  // Pretend to be on Vercel in production with no OIDC token: the real
+  // botid library throws, and requireHuman must allow the request.
+  const saved = { VERCEL: process.env.VERCEL, NODE_ENV: process.env.NODE_ENV, VERCEL_OIDC_TOKEN: process.env.VERCEL_OIDC_TOKEN };
+  const quiet = console.error;
+  let logged = '';
+  process.env.VERCEL = '1';
+  process.env.NODE_ENV = 'production';
+  delete process.env.VERCEL_OIDC_TOKEN;
+  console.error = (...a) => { logged += a.join(' '); };
+  try {
+    await botid.requireHuman({ headers: { host: 'dogdraft.test' } }, 'test');
+    assert.match(logged, /check failed, allowing request/);
+  } finally {
+    console.error = quiet;
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+});
+
+await test('BOTID_DISABLED=1 turns the check off', async () => {
+  const saved = process.env.VERCEL;
+  process.env.VERCEL = '1';
+  process.env.BOTID_DISABLED = '1';
+  try {
+    await botid.requireHuman({ headers: {} }, 'test'); // would call Vercel otherwise
+  } finally {
+    delete process.env.BOTID_DISABLED;
+    if (saved === undefined) delete process.env.VERCEL;
+    else process.env.VERCEL = saved;
+  }
+});
+
+await test('browser script is built, current, and loads before the app', async () => {
+  const fs = await import('node:fs');
+  const built = fs.readFileSync(new URL('../public/botid.js', import.meta.url), 'utf8');
+  const version = JSON.parse(fs.readFileSync(new URL('../node_modules/botid/package.json', import.meta.url), 'utf8')).version;
+  assert.ok(built.includes(`BotID client ${version}`), 'public/botid.js is stale: run npm run build:botid');
+  for (const r of botid.BOTID_PROTECTED) assert.ok(built.includes(`"${r.path}"`), `browser script does not protect ${r.path}`);
+  assert.ok(!built.includes('process.env'), 'browser script still references process.env');
+  const html = fs.readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  const b = html.indexOf('src="/botid.js"');
+  const a = html.indexOf('src="/app.js"');
+  assert.ok(b !== -1 && b < a, 'index.html must load /botid.js before /app.js');
+});
+
 console.log(`\n${passed} tests passed${process.exitCode ? ', some FAILED' : ''}`);

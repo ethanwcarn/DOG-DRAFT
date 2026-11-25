@@ -15,6 +15,7 @@
  */
 import { route, requireMethod, readJsonBody, sendJson, clientIp, HttpError } from '../lib/http.js';
 import { query } from '../lib/db.js';
+import { requireHuman } from '../lib/botid.js';
 import { hashPin, verifyPin, rateLimit } from '../lib/security.js';
 import { cleanName, cleanPin, cleanPicks, isLocked, nameKey } from '../lib/game.js';
 import { readSession, clearSessionCookie } from '../lib/session.js';
@@ -34,6 +35,7 @@ export default route(async (req, res) => {
     throw new HttpError(400, 'Something went wrong. Please refresh the page and try again.');
   }
   const ip = clientIp(req);
+  await requireHuman(req, 'picks');
 
   // ---------- Signed in ----------
   const sessionId = readSession(req);
