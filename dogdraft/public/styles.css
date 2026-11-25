@@ -345,6 +345,13 @@ table.points td:last-child { text-align: right; font-weight: 700; }
 .watch-link { text-align: center; margin: 16px 0 0; }
 .signed-in-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 
+/* Highlight the group a new player should start with */
+.group.spotlight .group-head, #bis-step.spotlight { animation: spotlight 1.2s ease 2; border-radius: 10px; }
+@keyframes spotlight {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 168, 38, 0); background-color: transparent; }
+  40% { box-shadow: 0 0 0 6px rgba(224, 168, 38, .45); background-color: var(--gold-soft); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

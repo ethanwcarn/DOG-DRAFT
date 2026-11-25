@@ -143,6 +143,11 @@ function render() {
   if (app.lockedRendered !== app.server.locked) {
     app.lockedRendered = app.server.locked;
     renderPicks();
+    const onPicksTab = document.querySelector('.tab[aria-selected="true"]')?.dataset.tab === 'picks';
+    if (!app.jumped && onPicksTab && app.session && !app.server.locked && !hasAnyPicks(app.session.picks)) {
+      app.jumped = true;
+      setTimeout(jumpToPicking, 150);
+    }
   } else if (app.server.locked) {
     renderMyTeam(); // scores change during the show
   }
@@ -752,6 +757,32 @@ function applySession(player) {
   store.set('dd_draft', app.draft);
 }
 
+/**
+ * Take a player with nothing saved straight to the first group they still
+ * need to pick from (phones: that wizard step; desktop: scroll to it), and
+ * briefly highlight it.
+ */
+function jumpToPicking() {
+  if (!app.session || app.server?.locked || !document.getElementById('bis-step')) return;
+  const step = firstIncompleteStep();
+  const target = step < app.groups.length ? document.getElementById(`group-${app.groups[step].key}`) : document.getElementById('bis-step');
+  if (isWizard()) {
+    goStep(step);
+  } else if (target) {
+    const header = document.querySelector('.site-header');
+    const sticky = document.querySelector('.sticky-search');
+    const stickyH = sticky && getComputedStyle(sticky).position === 'sticky' ? sticky.offsetHeight : 0;
+    const top = target.getBoundingClientRect().top + window.scrollY - (header ? header.offsetHeight : 0) - stickyH - 12;
+    window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  }
+  if (target) {
+    target.classList.remove('spotlight');
+    void target.offsetWidth; // restart the highlight animation
+    target.classList.add('spotlight');
+    setTimeout(() => target.classList.remove('spotlight'), 2600);
+  }
+}
+
 /** Called by the sign-in screen. */
 function onSignedIn(player, created) {
   applySession(player);
@@ -760,6 +791,10 @@ function onSignedIn(player, created) {
   if (app.server) render();
   app.goTab('picks');
   window.scrollTo({ top: 0 });
+  if (!app.server?.locked && !hasAnyPicks(player.picks)) {
+    app.jumped = true;
+    setTimeout(jumpToPicking, 150); // let the picks page lay out first
+  }
   const firstName = player.first;
   if (app.server?.locked) {
     toast(`Welcome back, ${firstName}! Your team is below.`, { kind: 'ok' });
@@ -783,6 +818,7 @@ function forgetSession() {
   for (const g of app.groups) app.draft.picks[g.key] = [];
   app.lockedRendered = null;
   app.boardSig = '';
+  app.jumped = false;
   if (app.server) render();
 }
 
