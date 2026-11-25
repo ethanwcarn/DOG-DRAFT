@@ -354,8 +354,11 @@ await test('admin and player cookies cannot stand in for each other', async () =
   const asPlayer = `dd_session=${adminCookie.split('=')[1]}`;
   assert.equal((await call(auth, { method: 'GET', cookie: asPlayer })).body.signedIn, false);
 });
-await test('Google: valid token signs up, then signs in to the same entry', async () => {
-  const r = await call(auth, { body: { action: 'google', credential: gToken() } });
+await test('Google: valid token asks "already entered?", then signs up, then signs in to the same entry', async () => {
+  const ask = await call(auth, { body: { action: 'google', credential: gToken() } });
+  assert.equal(ask.body.needsChoice, true, 'asks before creating');
+  assert.equal(sessionOf(ask), null, 'not signed in yet');
+  const r = await call(auth, { body: { action: 'google', credential: gToken(), confirmNew: true } });
   assert.equal(r.status, 201);
   assert.equal(r.body.player.name, 'Gina Google');
   assert.equal(r.body.player.google, true);
@@ -403,11 +406,29 @@ await test('Google: same name as a PIN entry must link with that PIN', async () 
   assert.equal(other.status, 409, "a different Google account can't take Ann's entry");
   await pg.query("UPDATE players SET google_sub = NULL WHERE name_key = 'ann lee'");
 });
+await test('Google name differs from the entry ("Samuel" vs "Sam"): connect by name + PIN, no second team', async () => {
+  const sam = await call(auth, { body: { action: 'pin', firstName: 'Sam', lastName: 'Carn', pin: '7777' } });
+  assert.equal(sam.status, 201);
+  const tok = gToken({ sub: '7777', given_name: 'Samuel', family_name: 'Carn' });
+  const ask = await call(auth, { body: { action: 'google', credential: tok } });
+  assert.equal(ask.body.needsChoice, true);
+  const wrong = await call(auth, { body: { action: 'link', credential: tok, firstName: 'Sam', lastName: 'Carn', pin: '0000' } });
+  assert.equal(wrong.status, 403);
+  const ok = await call(auth, { body: { action: 'link', credential: tok, firstName: 'sam', lastName: 'carn', pin: '7777' } });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.player.name, 'Sam Carn');
+  const again = await call(auth, { body: { action: 'google', credential: tok } });
+  assert.equal(again.body.player.name, 'Sam Carn', 'Google now signs straight in to Sam Carn');
+  const n = (await pg.query("SELECT count(*)::int AS n FROM players WHERE last_name = 'Carn'")).rows[0].n;
+  assert.equal(n, 1, 'still one team');
+  await pg.query("DELETE FROM players WHERE name_key = 'sam carn'");
+  await pg.query('DELETE FROM rate_limits');
+});
 await test('Google: missing last name asks for a name', async () => {
   const tok = gToken({ sub: '4444', given_name: 'Cher', family_name: '' });
   const r = await call(auth, { body: { action: 'google', credential: tok } });
   assert.equal(r.body.needsName, true);
-  const named = await call(auth, { body: { action: 'google', credential: tok, firstName: 'Cher', lastName: 'Bono' } });
+  const named = await call(auth, { body: { action: 'google', credential: tok, firstName: 'Cher', lastName: 'Bono', confirmNew: true } });
   assert.equal(named.status, 201);
   assert.equal(named.body.player.name, 'Cher Bono');
   await pg.query("DELETE FROM players WHERE google_sub IN ('1111', '4444')");
@@ -415,7 +436,7 @@ await test('Google: missing last name asks for a name', async () => {
 await test('Google sign-up respects one entry per device', async () => {
   const pinUp = await call(auth, { body: { action: 'pin', firstName: 'Dev', lastName: 'One', pin: '2020' } });
   const dev = deviceOf(pinUp);
-  const g = await call(auth, { cookie: dev, body: { action: 'google', credential: gToken({ sub: '5555', given_name: 'Dev', family_name: 'Two' }) } });
+  const g = await call(auth, { cookie: dev, body: { action: 'google', credential: gToken({ sub: '5555', given_name: 'Dev', family_name: 'Two' }), confirmNew: true } });
   assert.equal(g.status, 409);
   assert.match(g.body.error, /already has an entry for Dev One/);
   await pg.query("DELETE FROM players WHERE name_key IN ('dev one', 'dev two')");
@@ -471,7 +492,7 @@ await test('after lock: existing players can sign in, nobody new can join or sav
   assert.equal(save.status, 423);
   const late = await call(auth, { body: { action: 'pin', firstName: 'Late', lastName: 'Comer', pin: '3333' } });
   assert.equal(late.status, 423);
-  const lateG = await call(auth, { body: { action: 'google', credential: gToken({ sub: '6666', given_name: 'Late', family_name: 'Google' }) } });
+  const lateG = await call(auth, { body: { action: 'google', credential: gToken({ sub: '6666', given_name: 'Late', family_name: 'Google' }), confirmNew: true } });
   assert.equal(lateG.status, 423);
 });
 await test('saving after lock is refused', async () => {

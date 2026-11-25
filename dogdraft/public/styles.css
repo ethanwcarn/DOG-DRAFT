@@ -340,6 +340,8 @@ table.points td:last-child { text-align: right; font-weight: 700; }
 .card-inset { background: var(--gold-soft); border-radius: 12px; padding: 14px; margin: 12px 0 4px; }
 .card-inset p { margin: 0 0 10px; }
 .card-inset .btn { margin-top: 10px; }
+.choice-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+.choice-row .btn { margin-top: 0; }
 .watch-link { text-align: center; margin: 16px 0 0; }
 .signed-in-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 

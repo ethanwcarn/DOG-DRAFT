@@ -5,14 +5,18 @@
  * POST /api/auth { action: "pin", firstName, lastName, pin, hp }
  *        Existing name: PIN must match. New name: creates an entry (before
  *        the lock only). Either way the browser is signed in.
- * POST /api/auth { action: "google", credential, firstName?, lastName? }
- *        Known Google account: signed in. New account: creates an entry, or
- *        asks to link when an entry with the same name already exists
- *        ({ needsLink }), or asks for a name if Google didn't give one
- *        ({ needsName }).
+ * POST /api/auth { action: "google", credential, firstName?, lastName?, confirmNew? }
+ *        Known Google account: signed in. Otherwise:
+ *          { needsName }   Google didn't give a usable first + last name
+ *          { needsLink }   an entry with this name exists: enter its PIN
+ *          { needsChoice } no entry with this name: "Have you already
+ *                          entered?" Yes -> link (any name + PIN);
+ *                          No -> resend with confirmNew: true to create one
+ *        This keeps someone whose Google name differs from their entry
+ *        ("Samuel" vs "Sam") from accidentally making a second team.
  * POST /api/auth { action: "link", credential, firstName, lastName, pin }
  *        Connect a Google account to an existing name+PIN entry (proves
- *        ownership with the PIN once).
+ *        ownership with the PIN once). The name may differ from Google's.
  * POST /api/auth { action: "logout" }
  *
  * Same anti-bot protections as the picks API: rate limits, honeypot, one
@@ -100,6 +104,10 @@ export default route(async (req, res) => {
         }
         // Same name already entered with a PIN: prove it's you once.
         return sendJson(res, 200, { needsLink: true, first: names.first, last: names.last, hasPin: Boolean(existing.pin_hash) });
+      }
+      // No entry under this name: make sure they aren't already entered under another one
+      if (body.confirmNew !== true) {
+        return sendJson(res, 200, { needsChoice: true, first: names.first, last: names.last });
       }
       if (isLocked()) throw new HttpError(423, LOCKED_NEW);
       const row = await createEntry(req, res, ip, { first: names.first, last: names.last, key: names.key, googleSub: g.sub });

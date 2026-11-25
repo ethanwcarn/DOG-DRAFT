@@ -70,6 +70,7 @@ The first page is a sign-in screen with two options: **Sign in with Google**, or
 
 - Entries made before sign-in existed sign in with the same name and PIN.
 - If someone uses Google and an entry with the same name already exists, they enter that entry's PIN once to connect Google to it. After that, Google signs them straight in.
+- If someone uses Google and no entry has their Google name, the site asks **"Have you already entered?"** *Yes* lets them type the name and PIN of their existing entry (for example "Sam" when Google says "Samuel") to connect it. *No, I'm new* creates their entry. This prevents accidental second teams.
 - Players who haven't saved picks yet don't appear on the leaderboard. On `/admin` they show as "signed in, no picks yet".
 
 ### Turning on the Google button (one-time, about 10 minutes)

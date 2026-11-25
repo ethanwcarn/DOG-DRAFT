@@ -10,6 +10,9 @@
  *     needsName  -> ask for first/last name (Google didn't give both)
  *     needsLink  -> an entry with that name already exists with a PIN:
  *                   ask for the PIN once to connect it to this Google account
+ *     needsChoice-> no entry with that name: "Have you already entered?"
+ *                   Yes -> name + PIN of the existing entry to connect it
+ *                   No  -> create a new entry (confirmNew)
  */
 import { h, clear, api } from './dom.js';
 
@@ -106,13 +109,16 @@ export function renderSignIn(root, { googleClientId, locked, onSignedIn, onWatch
       h('p', { class: 'muted small-note' }, 'Your Google name becomes your player name.'));
 
     let credential = null;
+    let typedNames = {}; // names typed in the "what name?" step, reused when confirming
     const postGoogle = async (more = {}) => {
       showError('');
+      if (more.firstName !== undefined) typedNames = { firstName: more.firstName, lastName: more.lastName };
       try {
-        const r = await api('/api/auth', { method: 'POST', body: { action: 'google', credential, ...more } });
+        const r = await api('/api/auth', { method: 'POST', body: { action: 'google', credential, ...typedNames, ...more } });
         if (r.signedIn) return onSignedIn(r.player, r.created);
         if (r.needsName) return askName(r.suggested || {});
         if (r.needsLink) return askLink(r.first, r.last);
+        if (r.needsChoice) return askChoice(r.first, r.last);
         showError('Something went wrong. Please try again.');
       } catch (err) {
         showError(err.message);
@@ -162,8 +168,56 @@ export function renderSignIn(root, { googleClientId, locked, onSignedIn, onWatch
       p.focus();
     };
 
+    // No entry under the Google name: are they already entered under another name?
+    const askChoice = (gFirst, gLast) => {
+      const yes = h('button', { class: 'btn secondary', type: 'button' }, 'Yes, connect my entry');
+      const no = h('button', { class: 'btn primary', type: 'button' }, 'No, I\u2019m new');
+      yes.onclick = () => askExisting(gFirst, gLast);
+      no.onclick = async () => {
+        busy(true, no, 'Creating...');
+        await postGoogle({ confirmNew: true });
+        busy(false, no, 'No, I\u2019m new');
+      };
+      clear(extra).append(h('div', { class: 'card-inset' },
+        h('p', {}, h('strong', {}, `Hi ${gFirst}! Have you already entered the Fantasy Dog Draft?`),
+          ' If you signed up before with your name and a PIN (maybe a nickname or different spelling), connect that entry so you don\u2019t end up with two teams.'),
+        h('div', { class: 'choice-row' }, yes, no)));
+      yes.focus();
+    };
+
+    // Connect Google to an existing entry under any name: name + PIN
+    const askExisting = (gFirst, gLast) => {
+      const f = h('input', { autocomplete: 'given-name', maxlength: 30, value: gFirst || '' });
+      const l = h('input', { autocomplete: 'family-name', maxlength: 30, value: gLast || '' });
+      const p = h('input', { type: 'password', inputmode: 'numeric', pattern: '[0-9]{4}', maxlength: 4, autocomplete: 'off' });
+      const go = h('button', { class: 'btn primary', type: 'submit' }, 'Connect Google');
+      const back = h('button', { class: 'linklike', type: 'button', onclick: () => askChoice(gFirst, gLast) }, 'Back');
+      clear(extra).append(h('form', {
+        class: 'card-inset',
+        onsubmit: async (e) => {
+          e.preventDefault();
+          showError('');
+          if (!f.value.trim() || !l.value.trim()) return showError('Enter the first and last name you entered with.');
+          if (!/^\d{4}$/.test(p.value.trim())) return showError('Enter the 4-digit PIN you chose when you first entered.');
+          busy(true, go, 'Connecting...');
+          try {
+            const r = await api('/api/auth', { method: 'POST', body: { action: 'link', credential, firstName: f.value.trim(), lastName: l.value.trim(), pin: p.value.trim() } });
+            onSignedIn(r.player, false);
+          } catch (err) {
+            showError(err.message);
+          } finally {
+            busy(false, go, 'Connect Google');
+          }
+        },
+      }, h('p', {}, h('strong', {}, 'Which entry is yours?'), ' Type the name and PIN you entered with. After this, Google signs you straight in.'),
+      h('div', { class: 'fields' }, h('label', {}, 'First name', f), h('label', {}, 'Last name', l), h('label', {}, 'PIN', p)),
+      h('div', { class: 'choice-row' }, go, back)));
+      f.select();
+    };
+
     onCredential = (resp) => {
       credential = resp?.credential || null;
+      typedNames = {};
       if (!credential) return showError('Google sign-in was cancelled. Please try again.');
       postGoogle();
     };
