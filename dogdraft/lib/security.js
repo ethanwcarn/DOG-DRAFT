@@ -46,7 +46,7 @@ const SESSION_HOURS = 12;
  * and the database URL), so setup needs only one environment variable.
  * Changing the admin password therefore also logs out every admin session.
  */
-function sessionSecret() {
+export function sessionSecret() {
   const explicit = process.env.SESSION_SECRET;
   if (explicit && explicit.length >= 32) return explicit;
   const pw = process.env.ADMIN_PASSWORD;

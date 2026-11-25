@@ -131,7 +131,10 @@ async function adminState() {
     locked: isLocked(),
     results: all.results,
     revealed: all.revealed,
-    players: scored.players.map((p) => ({ id: p.id, name: p.name, total: p.total, rank: p.rank, createdAt: p.createdAt })),
+    players: scored.players.map((p) => ({
+      id: p.id, name: p.name, total: p.total, rank: p.rank, createdAt: p.createdAt,
+      hasPicks: Object.values(p.picks || {}).some((ids) => ids.length),
+    })),
     pickStats: pickStats(players),
   };
 }

@@ -15,7 +15,9 @@ import { scorePlayers } from '../lib/scoring.js';
 
 export default route(async (req, res) => {
   requireMethod(req, 'GET');
-  const [players, { results }] = await Promise.all([loadPlayers(), loadResults({ revealedOnly: true })]);
+  const [all, { results }] = await Promise.all([loadPlayers(), loadResults({ revealedOnly: true })]);
+  // Players who signed in but haven't saved picks yet aren't in the game (yet).
+  const players = all.filter((p) => Object.values(p.picks || {}).some((ids) => ids.length));
   const locked = isLocked();
 
   let leaderboard;

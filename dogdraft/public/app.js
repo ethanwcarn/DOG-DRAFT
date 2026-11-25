@@ -12,6 +12,7 @@
 import { h, clear, store, api } from './dom.js';
 import { confetti, showAward, toast, floatPoints, flip, onImgError } from './fx.js';
 import { initPhotos, photoSrc, photoAttrs, photoCredits, onCredits } from './photos.js';
+import { renderSignIn } from './signin.js';
 
 const POLL_MS = 5000;
 const POLL_HIDDEN_MS = 30000;
@@ -36,6 +37,8 @@ const app = {
   filter: '',
   page: {}, // group key -> current page index in the breed carousel
   step: 0, // phone wizard: index of the group being shown (groups.length = Best in Show step)
+  session: null, // signed-in player from /api/auth (null = signed out)
+  googleClientId: null, // set when Google sign-in is configured on the server
 };
 
 // Phones get a step-by-step picker: one group at a time, auto-advancing after 3 picks.
@@ -63,7 +66,11 @@ function formatName(raw) {
 async function init() {
   setupTabs();
   try {
-    const data = await api('/api/breeds');
+    const [data, auth] = await Promise.all([
+      api('/api/breeds'),
+      api('/api/auth').catch(() => ({ signedIn: false, googleClientId: null })),
+    ]);
+    app.googleClientId = auth.googleClientId || null;
     app.groups = data.groups;
     app.groupByKey = new Map(data.groups.map((g) => [g.key, g]));
     app.breeds = data.breeds;
@@ -73,6 +80,12 @@ async function init() {
     initPhotos(data.breeds);
     for (const g of app.groups) if (!Array.isArray(app.draft.picks[g.key])) app.draft.picks[g.key] = [];
     sanitizeDraft();
+    if (auth.signedIn && auth.player) applySession(auth.player);
+    else if (app.me) {
+      // Signed out (e.g. cookies cleared): forget who this device belonged to
+      app.me = null;
+      store.remove('dd_me');
+    }
   } catch (e) {
     clear(document.getElementById('tab-picks')).append(h('p', { class: 'error-box' }, `Could not load the breed list. ${e.message}`));
     return;
@@ -169,7 +182,7 @@ function setupTabs() {
     document.getElementById('menu-label').textContent = active ? active.textContent : 'Menu';
     document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
     document.querySelectorAll('.panel').forEach((p) => (p.hidden = p.id !== `tab-${name}`));
-    document.getElementById('save-bar').hidden = !(name === 'picks' && app.server && !app.server.locked);
+    document.getElementById('save-bar').hidden = !(name === 'picks' && app.server && !app.server.locked && app.session);
     if (location.hash !== `#${name}`) history.replaceState(null, '', `#${name}`);
   };
   document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => go(t.dataset.tab)));
@@ -222,7 +235,19 @@ function renderPicks() {
   const root = clear(document.getElementById('tab-picks'));
   const locked = app.server.locked;
   const activeTab = document.querySelector('.tab[aria-selected="true"]')?.dataset.tab;
-  document.getElementById('save-bar').hidden = locked || activeTab !== 'picks';
+  document.getElementById('save-bar').hidden = locked || activeTab !== 'picks' || !app.session;
+  root.classList.remove('wizard', 'needs-id');
+
+  // Not signed in: the sign-in screen is the first thing people see
+  if (!app.session) {
+    renderSignIn(root, {
+      googleClientId: app.googleClientId,
+      locked,
+      onSignedIn,
+      onWatch: () => app.goTab('board'),
+    });
+    return;
+  }
 
   if (locked) {
     root.append(
@@ -239,29 +264,16 @@ function renderPicks() {
   const ppg = app.rules.picksPerGroup;
   const total = ppg * app.groups.length;
 
-  // Step 1: identity
-  const first = h('input', { id: 'in-first', autocomplete: 'given-name', maxlength: 30, value: app.draft.first || '', oninput: saveIdentity });
-  const last = h('input', { id: 'in-last', autocomplete: 'family-name', maxlength: 30, value: app.draft.last || '', oninput: saveIdentity });
-  const pin = h('input', { id: 'in-pin', type: 'password', inputmode: 'numeric', pattern: '[0-9]{4}', maxlength: 4, autocomplete: 'off', oninput: updateGate });
-  // Honeypot: invisible to people (and screen readers); bots tend to fill every field.
-  const trap = h('input', { id: 'in-hp', name: 'dd_hp_x7', type: 'text', tabindex: '-1', autocomplete: 'off', 'aria-hidden': 'true' });
+  // Step 1: who's signed in
   root.append(
     h('div', { class: 'card intro' },
       h('h2', {}, `Pick ${ppg} breeds from each of the 7 groups`),
       h('p', {}, 'Your breeds earn points when they place in their group or win Best in Show on the Thanksgiving broadcast. No dog knowledge needed: go with the photos!'),
     ),
-    h('div', { class: 'card step' },
-      h('h3', {}, h('span', { class: 'step-num' }, '1'), 'Who are you?'),
-      h('div', { class: 'fields' },
-        h('label', {}, 'First name', first),
-        h('label', {}, 'Last name', last),
-        h('label', {}, '4-digit PIN', pin, h('small', {}, 'Make one up. You need it to change your picks later.')),
-      ),
-      h('div', { class: 'hp', 'aria-hidden': 'true' }, trap),
-      h('p', { class: 'muted' }, 'Already entered? Type your name and PIN, then ',
-        h('button', { class: 'linklike', type: 'button', onclick: loadMyPicks }, 'load my saved picks'), '.'),
-      app.me ? h('p', { class: 'device-note' },
-        `This device already has an entry for ${formatName(app.me.first)} ${formatName(app.me.last)}. Enter that PIN and load your picks to make changes. Each person gets one entry.`) : null,
+    h('div', { class: 'card step signed-in-bar' },
+      h('span', {}, h('span', { class: 'step-num' }, '\u2713'), ' Signed in as ', h('strong', {}, app.session.name),
+        app.session.google ? h('span', { class: 'muted' }, ' (Google)') : null),
+      h('button', { class: 'linklike', type: 'button', onclick: signOut }, 'Not you? Sign out'),
     ),
   );
 
@@ -429,19 +441,13 @@ function breedCard(b) {
   h('span', { class: 'breed-blurb' }, b.blurb));
 }
 
-function saveIdentity() {
-  app.draft.first = document.getElementById('in-first').value;
-  app.draft.last = document.getElementById('in-last').value;
-  store.set('dd_draft', app.draft);
-  updateGate();
-}
-
 // ---------------------------------------------------------------------------
 // Step 1 gate: no picking until name and PIN are filled in
 // ---------------------------------------------------------------------------
 
 /** What's still missing from step 1, as [label, inputId] pairs. */
 function missingIdentity() {
+  if (app.session) return []; // signed in: nothing to fill in
   const val = (id) => (document.getElementById(id)?.value || '').trim();
   const missing = [];
   if (!NAME_RE.test(val('in-first'))) missing.push(['your first name', 'in-first']);
@@ -722,48 +728,81 @@ function applyFilter({ animate = null, dir = 1 } = {}) {
   });
 }
 
-const honeypot = () => document.getElementById('in-hp')?.value || '';
+// ---------------------------------------------------------------------------
+// Sign-in session
+// ---------------------------------------------------------------------------
+const hasAnyPicks = (picks) => Object.values(picks || {}).some((ids) => Array.isArray(ids) && ids.length);
 
-function readIdentity() {
-  const first = document.getElementById('in-first').value.trim();
-  const last = document.getElementById('in-last').value.trim();
-  const pin = document.getElementById('in-pin').value.trim();
-  if (!first || !last) throw new Error('Please enter your first and last name (step 1).');
-  if (!/^\d{4}$/.test(pin)) throw new Error('Please enter a 4-digit PIN (step 1).');
-  return { first, last, pin };
+/** Remember the signed-in player and load their saved picks into the editor. */
+function applySession(player) {
+  app.session = player;
+  app.me = { first: player.first, last: player.last };
+  store.set('dd_me', app.me);
+  const draftIsTheirs = !app.draft.first || `${app.draft.first} ${app.draft.last}`.trim().toLowerCase() === player.name.toLowerCase();
+  if (hasAnyPicks(player.picks)) {
+    app.draft = { first: player.first, last: player.last, picks: JSON.parse(JSON.stringify(player.picks)), bisPicks: [...(player.bisPicks || [])] };
+  } else if (!draftIsTheirs) {
+    app.draft = { first: player.first, last: player.last, picks: {}, bisPicks: [] }; // someone else's draft on a shared device
+  } else {
+    app.draft.first = player.first;
+    app.draft.last = player.last;
+  }
+  for (const g of app.groups) if (!Array.isArray(app.draft.picks[g.key])) app.draft.picks[g.key] = [];
+  sanitizeDraft();
+  store.set('dd_draft', app.draft);
 }
 
-async function loadMyPicks() {
-  try {
-    const { first, last, pin } = readIdentity();
-    const data = await api('/api/picks', { method: 'POST', body: { action: 'load', firstName: first, lastName: last, pin, hp: honeypot() } });
-    app.draft = { first, last, picks: data.picks, bisPicks: Array.isArray(data.bisPicks) ? data.bisPicks : [] };
-    const hadFewer = app.draft.bisPicks.length < bisMax();
-    sanitizeDraft();
-    store.set('dd_draft', app.draft);
-    app.me = { first, last };
-    store.set('dd_me', app.me);
-    refreshSelection();
-    app.step = firstIncompleteStep();
-    showStep({ scroll: false });
-    if (hadFewer) {
-      showNotice('New: pick 3 Best in Show calls',
-        `You can now choose your top ${bisMax()} Best in Show calls instead of 1. If any of them wins, you get the +${app.rules.points.bestInShowCallBonus} bonus. `
-        + 'Your earlier call is kept as your 1st choice. Add the others in step 3, then tap Save.',
-        () => goStepOrScroll(app.groups.length));
-    } else {
-      toast('Loaded your picks. Make changes and save again.', { kind: 'ok' });
-    }
-  } catch (e) {
-    toast(e.message, { kind: 'error', ms: 5000 });
-    if (/step 1/.test(e.message)) document.getElementById('in-first').focus();
+/** Called by the sign-in screen. */
+function onSignedIn(player, created) {
+  applySession(player);
+  app.lockedRendered = null;
+  app.boardSig = '';
+  if (app.server) render();
+  app.goTab('picks');
+  window.scrollTo({ top: 0 });
+  const firstName = player.first;
+  if (app.server?.locked) {
+    toast(`Welcome back, ${firstName}! Your team is below.`, { kind: 'ok' });
+  } else if (hasAnyPicks(player.picks) && (player.bisPicks || []).length < bisMax()) {
+    showNotice('New: pick 3 Best in Show calls',
+      `You can now choose your top ${bisMax()} Best in Show calls instead of 1. If any of them wins, you get the +${app.rules.points.bestInShowCallBonus} bonus. `
+      + 'Your earlier call is kept as your 1st choice. Add the others in step 3, then tap Save.',
+      () => goStepOrScroll(app.groups.length));
+  } else {
+    toast(hasAnyPicks(player.picks) ? `Welcome back, ${firstName}! Your picks are loaded.` : `Welcome, ${firstName}! Time to pick your dogs.`, { kind: 'ok' });
   }
+}
+
+/** Clear everything this device knows about the signed-in player. */
+function forgetSession() {
+  app.session = null;
+  app.me = null;
+  store.remove('dd_me');
+  store.remove('dd_draft'); // a shared device shouldn't show the last person's picks
+  app.draft = { first: '', last: '', picks: {}, bisPicks: [] };
+  for (const g of app.groups) app.draft.picks[g.key] = [];
+  app.lockedRendered = null;
+  app.boardSig = '';
+  if (app.server) render();
+}
+
+async function signOut() {
+  try {
+    await api('/api/auth', { method: 'POST', body: { action: 'logout' } });
+  } catch {
+    /* even if the request fails, sign out locally */
+  }
+  forgetSession();
+  app.goTab('picks');
+  window.scrollTo({ top: 0 });
+  toast('Signed out.', { kind: 'ok' });
 }
 
 async function savePicks() {
   const btn = document.getElementById('save-btn');
   try {
-    const { first, last, pin } = readIdentity();
+    if (!app.session) throw new Error('Please sign in first.');
+    const wasNew = !hasAnyPicks(app.session.picks);
     const ppg = app.rules.picksPerGroup;
     const missing = app.groups.filter((g) => app.draft.picks[g.key].length !== ppg);
     if (missing.length) {
@@ -779,14 +818,19 @@ async function savePicks() {
     btn.textContent = 'Saving...';
     const r = await api('/api/picks', {
       method: 'POST',
-      body: { action: 'save', firstName: first, lastName: last, pin, picks: app.draft.picks, bisPicks: app.draft.bisPicks, hp: honeypot() },
+      body: { action: 'save', picks: app.draft.picks, bisPicks: app.draft.bisPicks, hp: '' },
     });
-    app.me = { first, last };
-    store.set('dd_me', app.me);
+    app.session.picks = JSON.parse(JSON.stringify(app.draft.picks));
+    app.session.bisPicks = [...app.draft.bisPicks];
+    app.boardSig = ''; // show the new entry on the leaderboard roster right away
     confetti(['#F5C542', '#2E7D32', '#1565C0', '#C62828'], 90, { y: 0.8, spread: Math.PI / 2 });
-    toast(r.created ? 'You are in! Come back on Thanksgiving to watch your dogs score.' : 'Your picks were updated.', { kind: 'ok', ms: 5000 });
+    toast(wasNew || r.created ? 'You are in! Come back on Thanksgiving to watch your dogs score.' : 'Your picks were updated.', { kind: 'ok', ms: 5000 });
   } catch (e) {
-    if (e.status === 409 && /already has an entry/.test(e.message)) {
+    if (e.status === 401) {
+      // Session expired or entry removed: back to the sign-in screen
+      forgetSession();
+      toast('Please sign in again.', { kind: 'error', ms: 5000 });
+    } else if (e.status === 409 && /already has an entry/.test(e.message)) {
       showNotice('One entry per person', e.message);
     } else {
       toast(e.message, { kind: 'error', ms: 6000 });

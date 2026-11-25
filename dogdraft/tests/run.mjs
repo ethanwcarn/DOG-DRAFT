@@ -38,7 +38,9 @@ async function call(handler, { method = 'POST', body, cookie, ip, headers = {}, 
   const res = {
     set statusCode(v) { out.status = v; },
     get statusCode() { return out.status; },
-    setHeader(k, v) { out.headers[k.toLowerCase()] = v; },
+    // Multiple cookies arrive as a list; join them so tests can match on text.
+    setHeader(k, v) { out.headers[k.toLowerCase()] = Array.isArray(v) ? v.join('\n') : v; },
+    getHeader(k) { return out.headers[k.toLowerCase()]; },
     end(b) { out.body = b ? JSON.parse(b) : null; },
   };
   await handler(req, res);
@@ -274,6 +276,160 @@ await test('names: standard capitalization, deliberate capitals kept', async () 
   await pg.query("DELETE FROM players WHERE name_key = 'sam carn'");
 });
 
+console.log('Sign-in tests');
+const auth = (await import('../api/auth.js')).default;
+const { setTestGoogleKeys } = await import('../lib/google.js');
+const nodeCrypto = await import('node:crypto');
+const CLIENT = 'test-client-123.apps.googleusercontent.com';
+process.env.GOOGLE_CLIENT_ID = CLIENT;
+const realKey = nodeCrypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+const evilKey = nodeCrypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+setTestGoogleKeys([{ ...realKey.publicKey.export({ format: 'jwk' }), kid: 'k1', alg: 'RS256', use: 'sig' }]);
+/** Make a Google-style ID token. Overrides let tests forge bad ones. */
+function gToken(claims = {}, { key = realKey.privateKey, kid = 'k1' } = {}) {
+  const now = Math.floor(Date.now() / 1000);
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const head = b64({ alg: 'RS256', kid, typ: 'JWT' });
+  const body = b64({ iss: 'https://accounts.google.com', aud: CLIENT, sub: '1111', iat: now, exp: now + 3600, given_name: 'Gina', family_name: 'Google', email: 'g@example.com', ...claims });
+  const sig = nodeCrypto.sign('RSA-SHA256', Buffer.from(`${head}.${body}`), key).toString('base64url');
+  return `${head}.${body}.${sig}`;
+}
+const sessionOf = (r) => (String(r.headers['set-cookie'] || '').match(/dd_session=[^;]+/) || [null])[0];
+const deviceOf = (r) => (String(r.headers['set-cookie'] || '').match(/dd_device=[^;]+/) || [null])[0];
+
+await test('signed out: GET reports config only', async () => {
+  const r = await call(auth, { method: 'GET' });
+  assert.equal(r.body.signedIn, false);
+  assert.equal(r.body.googleClientId, CLIENT);
+  assert.equal(r.body.player, null);
+});
+await test('PIN sign-up creates an empty entry, stays signed in, saves via session', async () => {
+  const r = await call(auth, { body: { action: 'pin', firstName: 'pat', lastName: 'new', pin: '1357', hp: '' } });
+  assert.equal(r.status, 201);
+  const sess = sessionOf(r);
+  assert.ok(sess, 'session cookie set');
+  assert.match(String(r.headers['set-cookie']), /dd_session=[^;]+; Path=\/api; HttpOnly; Secure; SameSite=Lax; Max-Age=5184000/);
+  assert.equal(r.body.player.name, 'Pat New');
+  const before = await call(state, { method: 'GET' });
+  assert.ok(!before.body.leaderboard.some((x) => x.name === 'Pat New'), 'not in the game until picks are saved');
+  const me = await call(auth, { method: 'GET', cookie: sess });
+  assert.equal(me.body.signedIn, true);
+  const p = makePicks();
+  const save = await call(picks, { cookie: sess, body: { action: 'save', picks: p, bisPicks: bis(p) } });
+  assert.equal(save.status, 200);
+  const load = await call(picks, { cookie: sess, body: { action: 'load' } });
+  assert.deepEqual(load.body.bisPicks, bis(p));
+  const after = await call(state, { method: 'GET' });
+  assert.ok(after.body.leaderboard.some((x) => x.name === 'Pat New'));
+  await pg.query("DELETE FROM players WHERE name_key = 'pat new'");
+});
+await test('PIN sign-in to an existing entry: right PIN only', async () => {
+  const wrong = await call(auth, { body: { action: 'pin', firstName: 'Ann', lastName: 'Lee', pin: '0000' } });
+  assert.equal(wrong.status, 403);
+  await pg.query('DELETE FROM rate_limits');
+  const ok = await call(auth, { body: { action: 'pin', firstName: 'ann', lastName: 'lee', pin: '1234' } });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.created, false);
+  assert.ok(ok.body.player.picks.toy.length === 3, 'existing picks come back');
+});
+await test('forged, tampered, or expired session cookies are ignored', async () => {
+  const ok = await call(auth, { body: { action: 'pin', firstName: 'Ann', lastName: 'Lee', pin: '1234' } });
+  const sess = sessionOf(ok);
+  const [name, val] = sess.split('=');
+  const [v, id, exp, sig] = val.split('.');
+  for (const bad of [`${v}.${Number(id) + 1}.${exp}.${sig}`, `${v}.${id}.${Number(exp) + 1}.${sig}`, `${v}.${id}.${exp}.AAAA`, `${v}.${id}.1000.${sig}`, 'garbage']) {
+    const r = await call(auth, { method: 'GET', cookie: `${name}=${bad}` });
+    assert.equal(r.body.signedIn, false, bad);
+  }
+  const p = makePicks();
+  const r = await call(picks, { cookie: `${name}=${v}.${Number(id) + 1}.${exp}.${sig}`, body: { action: 'save', picks: p, bisPicks: bis(p) } });
+  assert.notEqual(r.status, 200, 'a tampered cookie cannot save');
+});
+await test('admin and player cookies cannot stand in for each other', async () => {
+  const ok = await call(auth, { body: { action: 'pin', firstName: 'Ann', lastName: 'Lee', pin: '1234' } });
+  const sess = sessionOf(ok);
+  assert.equal((await call(admin, { method: 'GET', cookie: sess })).status, 401);
+  const adminLogin = await call(admin, { body: { action: 'login', password: 'test-admin-password' } });
+  const adminCookie = String(adminLogin.headers['set-cookie']).split(';')[0];
+  const asPlayer = `dd_session=${adminCookie.split('=')[1]}`;
+  assert.equal((await call(auth, { method: 'GET', cookie: asPlayer })).body.signedIn, false);
+});
+await test('Google: valid token signs up, then signs in to the same entry', async () => {
+  const r = await call(auth, { body: { action: 'google', credential: gToken() } });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.player.name, 'Gina Google');
+  assert.equal(r.body.player.google, true);
+  assert.equal(r.body.player.hasPin, false);
+  const again = await call(auth, { body: { action: 'google', credential: gToken() } });
+  assert.equal(again.status, 200);
+  assert.equal(again.body.player.id, r.body.player.id);
+  const pinTry = await call(auth, { body: { action: 'pin', firstName: 'Gina', lastName: 'Google', pin: '1234' } });
+  assert.equal(pinTry.status, 403);
+  assert.match(pinTry.body.error, /signs in with Google/);
+});
+await test('Google: forged, wrong-site, expired, or wrong-issuer tokens are rejected', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const bad = [
+    gToken({}, { key: evilKey.privateKey }),            // signed by someone else
+    gToken({ aud: 'other-site.apps.googleusercontent.com' }), // token for another site
+    gToken({ exp: now - 3600 }),                          // expired
+    gToken({ iss: 'https://evil.example' }),              // not Google
+    gToken({}, { kid: 'unknown' }),                       // unknown key
+    'not.a.token', '', 12345,
+  ];
+  for (const credential of bad) {
+    const r = await call(auth, { body: { action: 'google', credential } });
+    assert.equal(r.status, 401, String(credential).slice(0, 30));
+  }
+  // alg=none trick
+  const t = gToken().split('.');
+  const none = `${Buffer.from(JSON.stringify({ alg: 'none', kid: 'k1' })).toString('base64url')}.${t[1]}.`;
+  assert.equal((await call(auth, { body: { action: 'google', credential: none } })).status, 401);
+});
+await test('Google: same name as a PIN entry must link with that PIN', async () => {
+  const tok = gToken({ sub: '2222', given_name: 'Ann', family_name: 'Lee' });
+  const r = await call(auth, { body: { action: 'google', credential: tok } });
+  assert.equal(r.body.needsLink, true);
+  assert.equal(sessionOf(r), null, 'not signed in yet');
+  const wrong = await call(auth, { body: { action: 'link', credential: tok, pin: '9999' } });
+  assert.equal(wrong.status, 403);
+  const ok = await call(auth, { body: { action: 'link', credential: tok, pin: '1234' } });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.player.name, 'Ann Lee');
+  assert.equal(ok.body.player.google, true);
+  const direct = await call(auth, { body: { action: 'google', credential: tok } });
+  assert.equal(direct.body.player.name, 'Ann Lee', 'next time Google signs straight in');
+  const other = await call(auth, { body: { action: 'google', credential: gToken({ sub: '3333', given_name: 'Ann', family_name: 'Lee' }) } });
+  assert.equal(other.status, 409, "a different Google account can't take Ann's entry");
+  await pg.query("UPDATE players SET google_sub = NULL WHERE name_key = 'ann lee'");
+});
+await test('Google: missing last name asks for a name', async () => {
+  const tok = gToken({ sub: '4444', given_name: 'Cher', family_name: '' });
+  const r = await call(auth, { body: { action: 'google', credential: tok } });
+  assert.equal(r.body.needsName, true);
+  const named = await call(auth, { body: { action: 'google', credential: tok, firstName: 'Cher', lastName: 'Bono' } });
+  assert.equal(named.status, 201);
+  assert.equal(named.body.player.name, 'Cher Bono');
+  await pg.query("DELETE FROM players WHERE google_sub IN ('1111', '4444')");
+});
+await test('Google sign-up respects one entry per device', async () => {
+  const pinUp = await call(auth, { body: { action: 'pin', firstName: 'Dev', lastName: 'One', pin: '2020' } });
+  const dev = deviceOf(pinUp);
+  const g = await call(auth, { cookie: dev, body: { action: 'google', credential: gToken({ sub: '5555', given_name: 'Dev', family_name: 'Two' }) } });
+  assert.equal(g.status, 409);
+  assert.match(g.body.error, /already has an entry for Dev One/);
+  await pg.query("DELETE FROM players WHERE name_key IN ('dev one', 'dev two')");
+});
+await test('logout clears the session cookie', async () => {
+  const r = await call(auth, { body: { action: 'logout' } });
+  assert.match(String(r.headers['set-cookie']), /dd_session=; .*Max-Age=0/);
+});
+await test('honeypot applies to sign-in too', async () => {
+  const r = await call(auth, { body: { action: 'pin', firstName: 'Bot', lastName: 'Two', pin: '1111', hp: 'x' } });
+  assert.equal(r.status, 400);
+  await pg.query('DELETE FROM rate_limits');
+});
+
 // More players for scoring
 const bob = { firstName: 'Bob', lastName: 'Ray', pin: '2222' };
 const cat = { firstName: 'Cat', lastName: 'Kim', pin: '3333' };
@@ -307,6 +463,17 @@ await test('forged admin cookie rejected', async () => {
 // Lock the game now
 process.env.LOCK_AT = new Date(Date.now() - 1000).toISOString();
 
+await test('after lock: existing players can sign in, nobody new can join or save', async () => {
+  const ok = await call(auth, { body: { action: 'pin', firstName: 'Bob', lastName: 'Ray', pin: '2222' } });
+  assert.equal(ok.status, 200);
+  const p = makePicks();
+  const save = await call(picks, { cookie: sessionOf(ok), body: { action: 'save', picks: p, bisPicks: bis(p) } });
+  assert.equal(save.status, 423);
+  const late = await call(auth, { body: { action: 'pin', firstName: 'Late', lastName: 'Comer', pin: '3333' } });
+  assert.equal(late.status, 423);
+  const lateG = await call(auth, { body: { action: 'google', credential: gToken({ sub: '6666', given_name: 'Late', family_name: 'Google' }) } });
+  assert.equal(lateG.status, 423);
+});
 await test('saving after lock is refused', async () => {
   const p = makePicks();
   const r = await call(picks, { body: { action: 'save', ...bob, picks: p, bisPicks: bis(p) } });

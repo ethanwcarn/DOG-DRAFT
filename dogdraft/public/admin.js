@@ -126,7 +126,7 @@ function render() {
     h('div', { class: 'card' },
       h('h3', {}, `Players (${state.players.length})`),
       h('ul', { class: 'player-list' }, state.players.map((p) => h('li', {},
-        h('span', {}, `#${p.rank} ${p.name}: ${p.total} pts`),
+        h('span', {}, p.hasPicks ? `#${p.rank} ${p.name}: ${p.total} pts` : `${p.name} (signed in, no picks yet)`),
         h('button', {
           class: 'btn ghost small', type: 'button',
           onclick: (e) => confirmTwice(e.currentTarget, () => act({ action: 'deletePlayer', id: p.id }, `Removed ${p.name}`)),

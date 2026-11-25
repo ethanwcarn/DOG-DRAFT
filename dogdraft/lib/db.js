@@ -67,6 +67,11 @@ export function ensureSchema() {
       // Ranked Best in Show calls (JSON array). Older rows only have bis_pick,
       // which is still written (first call) and read as a fallback.
       await run('ALTER TABLE players ADD COLUMN IF NOT EXISTS bis_picks JSONB');
+      // Sign in with Google: Google's stable account id. PIN is optional for
+      // players who only ever use Google.
+      await run('ALTER TABLE players ADD COLUMN IF NOT EXISTS google_sub TEXT');
+      await run('CREATE UNIQUE INDEX IF NOT EXISTS players_google_sub_idx ON players (google_sub) WHERE google_sub IS NOT NULL');
+      await run('ALTER TABLE players ALTER COLUMN pin_hash DROP NOT NULL');
       await run('CREATE INDEX IF NOT EXISTS players_device_id_idx ON players (device_id)');
       await run(`CREATE TABLE IF NOT EXISTS rate_limits (
         key           TEXT PRIMARY KEY,

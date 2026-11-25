@@ -64,6 +64,28 @@ Picks lock by default at **noon Mountain Time on Thursday, Nov 26, 2026**. To ch
 - 2nd to 4th place are optional. You can pre-enter them with **Save hidden**, then press **Reveal** when you're ready.
 - Finish with Reserve Best in Show, then Best in Show.
 
+## Sign-in
+
+The first page is a sign-in screen with two options: **Sign in with Google**, or **name + 4-digit PIN**. Players stay signed in on that device for 60 days through a secure, HttpOnly cookie. Signing in takes them straight to their picks.
+
+- Entries made before sign-in existed sign in with the same name and PIN.
+- If someone uses Google and an entry with the same name already exists, they enter that entry's PIN once to connect Google to it. After that, Google signs them straight in.
+- Players who haven't saved picks yet don't appear on the leaderboard. On `/admin` they show as "signed in, no picks yet".
+
+### Turning on the Google button (one-time, about 10 minutes)
+
+The Google button stays hidden until `GOOGLE_CLIENT_ID` is set. Name + PIN works either way.
+
+1. Go to https://console.cloud.google.com and create a project, for example "Dog Draft".
+2. Open **Google Auth Platform**. Under **Branding**, enter an app name (for example "Fantasy Dog Draft") and your email. Under **Audience**, choose **External**, then click **Publish app** so it's **In production**. If you leave it in "Testing", only test users you list can sign in. The site only asks for name and email, so Google doesn't need to review it.
+3. Under **Clients**, choose **Create client**, then **Web application**. Under **Authorized JavaScript origins**, add:
+   - `https://dogdraft.ethan-carn.work`
+   - `https://dog-draft-dogdraft.vercel.app`
+
+   No redirect URIs are needed.
+4. Copy the **Client ID**. It ends in `.apps.googleusercontent.com`. The client ID isn't a secret; it's fine for it to be public.
+5. In Vercel, go to **Settings > Environment Variables**, add `GOOGLE_CLIENT_ID` with that value, and redeploy.
+
 ## One entry per person
 
 The first time a browser saves an entry, the site remembers that device. The same browser can then only edit that entry. It can't create a second one under a different name. Editing still works from any device with the right name and PIN.
@@ -106,6 +128,7 @@ To change a limit, edit `LIMITS` in `api/picks.js`. A CAPTCHA isn't used. For a 
 
 ```
 npm install
-npm test                      # 23 API and scoring tests on in-memory Postgres
+npm test                      # API, scoring, and sign-in tests on in-memory Postgres
 node tests/dev-server.mjs     # local site at http://localhost:3000 (admin password: dev-admin-password)
+DEV_FAKE_GOOGLE=1 node tests/dev-server.mjs   # same, with test Google tokens at /__dev/gtoken
 ```
