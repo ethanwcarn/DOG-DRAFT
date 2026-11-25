@@ -1,0 +1,52 @@
+# Vercel Web Analytics Installation Report
+
+## Summary
+Successfully installed and configured Vercel Web Analytics for the Fantasy Dog Draft project following the official Vercel documentation.
+
+## Changes Implemented
+
+### 1. Package Installation
+- **Added**: `@vercel/analytics` v2.0.1 to dependencies
+- **Updated**: `package.json` and `package-lock.json`
+
+### 2. Analytics Integration
+- **Created**: `public/analytics.js` - Analytics initialization module that uses the `inject()` method from `@vercel/analytics` for vanilla JavaScript projects
+- **Modified**: `public/index.html` - Added analytics script import before the main app.js script
+- **Modified**: `public/admin.html` - Added analytics script import before the admin.js script
+
+### 3. Security Configuration
+- **Modified**: `vercel.json` - Updated Content-Security-Policy headers to allow Vercel Analytics:
+  - Added `https://va.vercel-scripts.com` to `script-src` directive
+  - Added `https://vitals.vercel-insights.com` to `connect-src` directive
+
+## Implementation Details
+
+This project uses vanilla JavaScript with ES modules, so I followed the documentation's guidance for "Vanilla/Static Sites with Build Tools" by:
+1. Installing the `@vercel/analytics` package
+2. Creating a dedicated analytics module that imports and calls `inject()` from `@vercel/analytics`
+3. Including this module in both HTML pages (index.html and admin.html) as ES6 modules
+4. Updating CSP headers to allow analytics scripts and connections
+
+## Testing
+
+All existing tests pass successfully:
+- ✅ 49 tests passed
+- ✅ No breaking changes introduced
+- ✅ Analytics integration follows official Vercel documentation
+- ✅ Proper CSP configuration ensures security while allowing analytics
+
+## Next Steps
+
+To activate Web Analytics:
+1. Enable Web Analytics in the Vercel dashboard for this project
+2. Deploy these changes to production using `vercel deploy`
+3. Verify analytics are working by checking the browser's Network tab for requests to the unique analytics path
+4. Monitor the Analytics dashboard after a few days of visitor data
+
+## Files Changed
+- `package.json` - Added @vercel/analytics dependency
+- `package-lock.json` - Updated lockfile with new dependency
+- `public/analytics.js` - Created analytics initialization module
+- `public/index.html` - Added analytics script tag
+- `public/admin.html` - Added analytics script tag
+- `vercel.json` - Updated CSP headers for analytics compatibility
