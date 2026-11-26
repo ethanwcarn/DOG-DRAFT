@@ -95,6 +95,12 @@ export function requireAdmin(req) {
  * Count an attempt for `key`; throw 429 when over `limit` within `windowSec`.
  * Keys are hashed so raw IPs and names are never stored.
  */
+/** Forget the attempt count for one key (used when an admin resets a PIN). */
+export async function clearRateLimit(key) {
+  const hashed = crypto.createHash('sha256').update(key).digest('hex');
+  await query('DELETE FROM rate_limits WHERE key = $1', [hashed]);
+}
+
 export async function rateLimit(key, limit, windowSec) {
   const hashed = crypto.createHash('sha256').update(key).digest('hex');
   const rows = await query(

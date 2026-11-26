@@ -132,6 +132,7 @@ function render() {
           onclick: (e) => confirmTwice(e.currentTarget, () => act({ action: 'deletePlayer', id: p.id }, `Removed ${p.name}`)),
         }, 'Remove')))),
     ),
+    pinResetCard(state.players),
     h('div', { class: 'card' },
       h('h3', {}, 'Reset all results'),
       h('p', { class: 'muted' }, 'Clears every result (for after testing). Player picks are kept.'),
@@ -230,3 +231,25 @@ function slotRow(slot, label, options, optional) {
 }
 
 init();
+
+/** Give a player who forgot their PIN a new one. Tell them the new PIN in person. */
+function pinResetCard(players) {
+  const who = h('select', { 'aria-label': 'Player' },
+    h('option', { value: '' }, 'Choose a player'),
+    [...players].sort((a, b) => a.name.localeCompare(b.name)).map((p) => h('option', { value: String(p.id) }, p.name)));
+  const pin = h('input', { inputmode: 'numeric', maxlength: '4', autocomplete: 'off', placeholder: 'New 4-digit PIN', 'aria-label': 'New 4-digit PIN' });
+  return h('div', { class: 'card' },
+    h('h3', {}, "Reset a player's PIN"),
+    h('p', { class: 'muted' }, 'For someone who forgot their PIN. Their picks are kept. Tell them the new PIN yourself.'),
+    h('div', { class: 'fields' }, who, pin),
+    h('p', {}, h('button', {
+      class: 'btn secondary', type: 'button',
+      onclick: () => {
+        const id = Number(who.value);
+        const name = who.selectedOptions[0]?.textContent || 'player';
+        if (!id) return toast('Choose a player first.');
+        if (!/^\d{4}$/.test(pin.value.trim())) return toast('The new PIN must be exactly 4 digits.');
+        act({ action: 'resetPin', id, pin: pin.value.trim() }, `New PIN set for ${name}`);
+      },
+    }, 'Set new PIN')));
+}

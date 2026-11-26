@@ -631,6 +631,39 @@ await test('endpoint pages through the API and survives an outage', async () => 
   }
 });
 
+await test('admin can reset a forgotten PIN; old PIN stops working, picks are kept', async () => {
+  const savedLock = process.env.LOCK_AT;
+  process.env.LOCK_AT = new Date(Date.now() + 3600e3).toISOString();
+  try {
+    const made = await call(auth, { body: { action: 'pin', firstName: 'Forgetful', lastName: 'Dad', pin: '1111' } });
+    assert.equal(made.status, 201);
+    const id = made.body.player.id;
+    const p = makePicks();
+    assert.equal((await call(picks, { cookie: sessionOf(made), body: { action: 'save', picks: p, bisPicks: bis(p) } })).status, 200);
+
+    for (let i = 0; i < 10; i++) await call(auth, { body: { action: 'pin', firstName: 'Forgetful', lastName: 'Dad', pin: '9999' } });
+    assert.equal((await call(auth, { body: { action: 'pin', firstName: 'Forgetful', lastName: 'Dad', pin: '1111' } })).status, 429, 'locked out from guessing');
+
+    const notAdmin = await call(admin, { cookie: sessionOf(made), body: { action: 'resetPin', id, pin: '2222' } });
+    assert.equal(notAdmin.status, 401, 'players cannot reset PINs');
+
+    const login = await call(admin, { body: { action: 'login', password: 'test-admin-password' } });
+    const adminCookie = String(login.headers['set-cookie']).split(';')[0];
+    assert.equal((await call(admin, { cookie: adminCookie, body: { action: 'resetPin', id, pin: '12a4' } })).status, 400);
+    assert.equal((await call(admin, { cookie: adminCookie, body: { action: 'resetPin', id: 999999, pin: '2222' } })).status, 404);
+    assert.equal((await call(admin, { cookie: adminCookie, body: { action: 'resetPin', id, pin: '2222' } })).status, 200);
+
+    const oldPin = await call(auth, { body: { action: 'pin', firstName: 'Forgetful', lastName: 'Dad', pin: '1111' } });
+    assert.equal(oldPin.status, 403, 'old PIN rejected');
+    const newPin = await call(auth, { body: { action: 'pin', firstName: 'forgetful', lastName: 'dad', pin: '2222' } });
+    assert.equal(newPin.status, 200, 'new PIN works');
+    assert.equal(newPin.body.player.id, id, 'same entry');
+    assert.deepEqual(newPin.body.player.picks, p, 'picks kept');
+  } finally {
+    process.env.LOCK_AT = savedLock;
+  }
+});
+
 console.log('\nBotID');
 const botid = await import('../lib/botid.js');
 

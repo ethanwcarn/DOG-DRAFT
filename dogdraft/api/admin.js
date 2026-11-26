@@ -10,13 +10,14 @@
  * POST /api/admin { action: "clear", slot }                   remove one result
  * POST /api/admin { action: "resetResults", confirm: "RESET" }
  * POST /api/admin { action: "deletePlayer", id }
+ * POST /api/admin { action: "resetPin", id, pin }              give a player a new 4-digit PIN
  */
 import { route, requireMethod, readJsonBody, sendJson, clientIp, HttpError } from '../lib/http.js';
 import { query } from '../lib/db.js';
-import { createAdminCookie, clearAdminCookie, requireAdmin, rateLimit, safeEqual } from '../lib/security.js';
+import { createAdminCookie, clearAdminCookie, requireAdmin, rateLimit, safeEqual, hashPin, clearRateLimit } from '../lib/security.js';
 import { BREED_BY_ID, GROUPS } from '../lib/breeds.js';
 import { ALL_SLOTS, parseGroupSlot, scorePlayers, UNDERDOG_MAX_PICKERS } from '../lib/scoring.js';
-import { isLocked, lockAt, loadPlayers, loadResults } from '../lib/game.js';
+import { isLocked, lockAt, loadPlayers, loadResults, cleanPin } from '../lib/game.js';
 
 export default route(async (req, res) => {
   requireMethod(req, 'GET', 'POST');
@@ -78,6 +79,16 @@ export default route(async (req, res) => {
       const id = Number(body.id);
       if (!Number.isInteger(id) || id <= 0) throw new HttpError(400, 'Invalid player.');
       await query('DELETE FROM players WHERE id = $1', [id]);
+      break;
+    }
+    case 'resetPin': {
+      const id = Number(body.id);
+      if (!Number.isInteger(id) || id <= 0) throw new HttpError(400, 'Invalid player.');
+      const pinHash = await hashPin(cleanPin(body.pin));
+      const rows = await query('UPDATE players SET pin_hash = $1, updated_at = now() WHERE id = $2 RETURNING name_key', [pinHash, id]);
+      if (!rows.length) throw new HttpError(404, 'That player no longer exists.');
+      // They may have locked themselves out guessing; let the new PIN work right away.
+      await clearRateLimit(`name:${rows[0].name_key}`);
       break;
     }
     default:
