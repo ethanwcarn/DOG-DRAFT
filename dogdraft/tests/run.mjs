@@ -665,6 +665,32 @@ await test('admin can reset a forgotten PIN; old PIN stops working, picks are ke
   }
 });
 
+await test('admin sees everyone\'s picks, with hidden results counted only in the preview', async () => {
+  const login = await call(admin, { body: { action: 'login', password: 'test-admin-password' } });
+  const cookie = String(login.headers['set-cookie']).split(';')[0];
+  await call(admin, { cookie, body: { action: 'resetResults', confirm: 'RESET' } });
+
+  const before = (await call(admin, { method: 'GET', cookie })).body;
+  const p = before.players.find((x) => x.hasPicks);
+  assert.ok(p, 'a player with picks exists');
+  assert.ok(Object.keys(p.picks).length, 'picks are included');
+  assert.ok(Array.isArray(p.bisPicks));
+  const [group, ids] = Object.entries(p.picks).find(([, v]) => v.length);
+
+  // Save that breed as its group winner, hidden: live score unchanged, preview goes up.
+  await call(admin, { cookie, body: { action: 'set', slot: `${group}:1`, breedId: ids[0], reveal: false } });
+  const hidden = (await call(admin, { method: 'GET', cookie })).body.players.find((x) => x.id === p.id);
+  assert.equal(hidden.total, 0, 'hidden results do not count live');
+  assert.ok(hidden.previewTotal > 0, 'preview counts the hidden result');
+  assert.ok(hidden.previewBreakdown.some((x) => x.breedId === ids[0]));
+
+  await call(admin, { cookie, body: { action: 'reveal', slots: [`${group}:1`] } });
+  const shown = (await call(admin, { method: 'GET', cookie })).body.players.find((x) => x.id === p.id);
+  assert.equal(shown.total, hidden.previewTotal, 'after reveal, live equals the preview');
+
+  await call(admin, { cookie, body: { action: 'resetResults', confirm: 'RESET' } });
+});
+
 console.log('\nBotID');
 const botid = await import('../lib/botid.js');
 

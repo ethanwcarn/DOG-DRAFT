@@ -132,6 +132,7 @@ function render() {
           onclick: (e) => confirmTwice(e.currentTarget, () => act({ action: 'deletePlayer', id: p.id }, `Removed ${p.name}`)),
         }, 'Remove')))),
     ),
+    playerPicksCard(),
     pinResetCard(state.players),
     h('div', { class: 'card' },
       h('h3', {}, 'Reset all results'),
@@ -252,4 +253,57 @@ function pinResetCard(players) {
         act({ action: 'resetPin', id, pin: pin.value.trim() }, `New PIN set for ${name}`);
       },
     }, 'Set new PIN')));
+}
+
+const ORD = ['1st', '2nd', '3rd'];
+
+/**
+ * Everyone's picks with points per pick. "Live" matches the public leaderboard
+ * (revealed results only); "after reveal" also counts results saved hidden.
+ */
+function playerPicksCard() {
+  const players = state.players.filter((p) => p.hasPicks);
+  const counts = state.pickCounts || {};
+  const soloMax = catalog.rules.underdogMaxPickers;
+  const bonus = catalog.rules.points.bestInShowCallBonus;
+  const anyHidden = Object.keys(state.results).some((slot) => !state.revealed[slot]);
+
+  const rows = players.map((p) => {
+    const live = new Map(p.breakdown.map((x) => [x.breedId, x.points]));
+    const pre = new Map(p.previewBreakdown.map((x) => [x.breedId, x.points]));
+    const pending = p.previewTotal !== p.total;
+    const groups = catalog.groups.map((g) => {
+      const ids = p.picks[g.key] || [];
+      const groupLive = ids.reduce((n, id) => n + (live.get(id) || 0), 0);
+      return h('div', { class: 'ap-group', style: { '--accent': g.color } },
+        h('h4', {}, g.name, h('span', { class: 'ap-sum' }, `${groupLive} pts`)),
+        h('table', { class: 'ap-table' }, h('tbody', {}, ids.map((id) => {
+          const lp = live.get(id) || 0;
+          const pp = pre.get(id) || 0;
+          const call = p.bisPicks.indexOf(id);
+          return h('tr', { class: lp ? 'scored' : '' },
+            h('td', {}, breedName(id),
+              call >= 0 ? h('span', { class: 'tag gold' }, `BIS ${ORD[call]}`) : null,
+              (counts[id] || 0) <= soloMax ? h('span', { class: 'tag' }, 'Solo x2') : null),
+            h('td', { class: 'ap-pts' }, lp ? `+${lp}` : '0',
+              pp !== lp ? h('span', { class: 'ap-hidden' }, ` (${pp ? `+${pp}` : '0'} after reveal)`) : null));
+        }))));
+    });
+    const bisLine = p.bisCorrect || p.previewBisCorrect
+      ? h('p', { class: 'bonus' }, `Best in Show call correct: +${bonus}${p.bisCorrect ? '' : ' (after reveal)'}`)
+      : h('p', { class: 'muted small' }, `Best in Show calls: ${p.bisPicks.map(breedName).join(', ') || 'none'}`);
+    return h('details', { class: 'ap-player' },
+      h('summary', {},
+        h('span', {}, `#${p.rank} ${p.name}`),
+        h('span', { class: 'ap-total' }, `${p.total} pts`, pending ? h('span', { class: 'ap-hidden' }, ` (${p.previewTotal} after reveal)`) : null)),
+      h('div', { class: 'ap-groups' }, groups),
+      bisLine);
+  });
+
+  return h('div', { class: 'card' },
+    h('h3', {}, "Everyone's picks and points"),
+    h('p', { class: 'muted' }, anyHidden
+      ? 'Points match the public leaderboard. Numbers marked "after reveal" include results you saved but haven\'t revealed yet.'
+      : 'Tap a player to see every pick and what it scored.'),
+    players.length ? h('div', { class: 'ap-list' }, rows) : h('p', { class: 'muted' }, 'Nobody has picks yet.'));
 }

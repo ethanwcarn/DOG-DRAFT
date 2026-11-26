@@ -137,15 +137,28 @@ async function adminState() {
     loadResults({ revealedOnly: true }),
   ]);
   const scored = scorePlayers(players, pub.results);
+  // Same scoring with hidden results included, so the admin can preview standings before revealing.
+  const preview = new Map(scorePlayers(players, all.results).players.map((p) => [p.id, p]));
   return {
     lockAt: lockAt().toISOString(),
     locked: isLocked(),
     results: all.results,
     revealed: all.revealed,
-    players: scored.players.map((p) => ({
-      id: p.id, name: p.name, total: p.total, rank: p.rank, createdAt: p.createdAt,
-      hasPicks: Object.values(p.picks || {}).some((ids) => ids.length),
-    })),
+    players: scored.players.map((p) => {
+      const pv = preview.get(p.id);
+      return {
+        id: p.id, name: p.name, total: p.total, rank: p.rank, createdAt: p.createdAt,
+        hasPicks: Object.values(p.picks || {}).some((ids) => ids.length),
+        picks: p.picks || {},
+        bisPicks: p.bisPicks || [],
+        breakdown: p.breakdown,
+        bisCorrect: p.bisCorrect,
+        previewTotal: pv.total,
+        previewBreakdown: pv.breakdown,
+        previewBisCorrect: pv.bisCorrect,
+      };
+    }),
+    pickCounts: scored.pickCounts,
     pickStats: pickStats(players),
   };
 }
