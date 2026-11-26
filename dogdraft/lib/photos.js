@@ -28,6 +28,7 @@ export const LOCAL_PHOTOS = new Set([
   'beauceron',
   'bedlington-terrier',
   'belgian-malinois',
+  'belgian-sheepdog', // photo supplied by Ethan (Nov 2026)
   'belgian-tervuren',
   'bergamasco-sheepdog',
   'berger-picard',
