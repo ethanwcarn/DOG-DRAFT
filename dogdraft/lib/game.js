@@ -8,14 +8,18 @@ import { query } from './db.js';
 import { HttpError } from './http.js';
 
 /**
- * When picks lock. Default: noon Mountain Time on Thanksgiving 2026
- * (Nov 26, 12:00 MST = 19:00 UTC). Override with the LOCK_AT env var
- * (any ISO 8601 timestamp, e.g. "2026-11-26T17:00:00Z").
+ * When picks lock: 10:50 AM Mountain on Thanksgiving 2026 (17:50 UTC).
+ * Moved up from noon because the East Coast broadcast starts at 10 AM
+ * Mountain and results get posted online during it.
+ * The LOCK_AT env var can only make the lock EARLIER (tests use it to move
+ * the lock around); a later env value can't reopen picks.
  */
+export const DEFAULT_LOCK_AT = '2026-11-26T17:50:00Z';
 export function lockAt() {
+  const fallback = new Date(DEFAULT_LOCK_AT);
   const fromEnv = process.env.LOCK_AT ? new Date(process.env.LOCK_AT) : null;
-  if (fromEnv && !Number.isNaN(fromEnv.getTime())) return fromEnv;
-  return new Date('2026-11-26T19:00:00Z');
+  if (fromEnv && !Number.isNaN(fromEnv.getTime()) && (process.env.NODE_ENV === 'test' || fromEnv < fallback)) return fromEnv;
+  return fallback;
 }
 
 export function isLocked(now = new Date()) {

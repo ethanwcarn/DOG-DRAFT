@@ -143,6 +143,10 @@ function render() {
   if (app.lockedRendered !== app.server.locked) {
     app.lockedRendered = app.server.locked;
     renderPicks();
+    // Once picks lock, the leaderboard is the main screen. Move anyone sitting
+    // on the picks/sign-in screen there, unless they tapped a tab themselves.
+    const onPicks = document.querySelector('.tab[aria-selected="true"]')?.dataset.tab === 'picks';
+    if (app.server.locked && onPicks && !app.userPickedTab) app.goTab('board');
     const onPicksTab = document.querySelector('.tab[aria-selected="true"]')?.dataset.tab === 'picks';
     if (!app.jumped && onPicksTab && app.session && !app.server.locked && !hasAnyPicks(app.session.picks)) {
       app.jumped = true;
@@ -190,7 +194,10 @@ function setupTabs() {
     document.getElementById('save-bar').hidden = !(name === 'picks' && app.server && !app.server.locked && app.session);
     if (location.hash !== `#${name}`) history.replaceState(null, '', `#${name}`);
   };
-  document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => go(t.dataset.tab)));
+  document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
+    app.userPickedTab = true; // don't auto-switch someone who chose a tab
+    go(t.dataset.tab);
+  }));
   document.querySelectorAll('[data-goto]').forEach((a) =>
     a.addEventListener('click', (e) => {
       e.preventDefault();
@@ -1116,7 +1123,7 @@ function renderRules() {
         h('li', {}, 'Enter your first and last name and make up a 4-digit PIN.'),
         h('li', {}, `Pick ${app.rules.picksPerGroup} breeds in each of the 7 groups. Photos and one-line descriptions help if you don't know dogs.`),
         h('li', {}, `Choose your top ${bisMax()} Best in Show calls from your dogs, most likely first.`),
-        h('li', {}, 'Save. You can come back and change picks until noon on Thanksgiving.'),
+        h('li', {}, 'Save. You could come back and change picks until 10:50 AM Mountain on Thanksgiving.'),
         h('li', {}, 'Watch the show and this site together. Points pop up as winners are announced.'),
       ),
       h('p', { class: 'muted' }, 'The show was judged the weekend before Thanksgiving. Please don\'t look up the results. It is more fun that way!'),

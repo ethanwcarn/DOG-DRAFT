@@ -9,6 +9,7 @@ import { BREEDS, GROUP_KEYS } from '../lib/breeds.js';
 import { scorePlayers } from '../lib/scoring.js';
 
 process.env.ADMIN_PASSWORD = 'test-admin-password';
+process.env.NODE_ENV = 'test'; // lets tests move LOCK_AT later than the real lock
 // SESSION_SECRET intentionally unset: exercises the derived-key path
 process.env.LOCK_AT = new Date(Date.now() + 3600e3).toISOString(); // unlocked
 
